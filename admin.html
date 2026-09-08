@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>管理员后台雏形</title>
+  <link rel="stylesheet" href="src/styles/site.css" />
+</head>
+<body>
+  <main class="site-shell">
+    <header class="site-topbar">
+      <div class="brand-lockup">
+        <strong>管理员后台雏形</strong>
+        <span>当前为本地预览版；CloudBase 接入后替换 localStorage 数据源。</span>
+      </div>
+      <nav class="nav-links">
+        <a href="index.html">实验入口</a>
+        <button class="btn" id="exportBtn" type="button">导出 CSV</button>
+        <button class="btn" id="clearBtn" type="button">清空记录</button>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <div class="hero-card">
+        <h1>后台先管理配置，后续再接入真实云端。</h1>
+        <p>管理员后台的核心不是重写实验，而是维护条件配置、视频元数据、分配规则和数据导出。当前页面展示 20 个条件、5 类内容、视频素材清单，以及记录概览。</p>
+      </div>
+      <div class="panel stat-grid" id="stats"></div>
+    </section>
+
+    <section class="panel">
+      <h2>条件配置</h2>
+      <div style="overflow:auto;">
+        <table class="admin-table">
+          <thead><tr><th>入口</th><th>条件</th><th>退出界面</th><th>继续方式</th><th>视觉处理</th></tr></thead>
+          <tbody id="conditionRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>视频素材</h2>
+      <p class="muted">正式版本中，视频文件放 EdgeOne，CloudBase 只存视频 URL、分类和实验元数据。</p>
+      <div style="overflow:auto;">
+        <table class="admin-table">
+          <thead><tr><th>素材 ID</th><th>主分类</th><th>标题/文案</th><th>视频地址</th></tr></thead>
+          <tbody id="videoRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>记录概览</h2>
+      <pre class="codebox" id="recordsBox"></pre>
+    </section>
+  </main>
+
+  <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
+  <script src="src/config/cloudbase.js"></script>
+  <script src="src/config/categories.js"></script>
+  <script src="src/config/videos.js"></script>
+  <script src="src/config/conditions.js"></script>
+  <script src="src/lib/store.js"></script>
+  <script>
+    (async () => {
+      await window.ExperimentStore.whenReady;
+      const records = await window.ExperimentStore.readAll();
+      const stats = document.getElementById('stats');
+      const sessions = records.participant_sessions || [];
+      const completions = records.completion_records || [];
+      const summaries = records.feed_summaries || [];
+
+      stats.innerHTML = `
+        <div class="stat"><b>${window.EXPERIMENT_CONDITIONS.length}</b><span>实验条件</span></div>
+        <div class="stat"><b>${window.VIDEO_ASSETS.length}</b><span>素材记录</span></div>
+        <div class="stat"><b>${sessions.length}</b><span>session</span></div>
+        <div class="stat"><b>${completions.length}</b><span>完成记录</span></div>
+      `;
+
+      document.getElementById('conditionRows').innerHTML = window.EXPERIMENT_CONDITIONS.map((condition) => {
+        const url = `entry.html?study=${condition.study}&condition=${condition.condition}`;
+        return `
+          <tr>
+            <td><a href="${url}">${condition.study.toUpperCase()}-${condition.condition.toUpperCase()}</a></td>
+            <td>${condition.name}</td>
+            <td>${condition.exitNudge.type}</td>
+            <td>${condition.continueMode}</td>
+            <td>${condition.visualTreatment.saturationPercent}% / ${condition.visualTreatment.applyAtSec ?? 0}s</td>
+          </tr>
+        `;
+      }).join('');
+
+      const categoryLabel = (id) => window.CONTENT_CATEGORIES.find((item) => item.id === id)?.label || id;
+      document.getElementById('videoRows').innerHTML = window.VIDEO_ASSETS.map((video) => `
+        <tr>
+          <td>${video.id}<br><span class="muted">${video.sample_id}</span></td>
+          <td>${categoryLabel(video.primary_category)}</td>
+          <td>${video.caption}<br><span class="muted">@${video.uploader_name}</span></td>
+          <td><a href="${video.video}" target="_blank" rel="noreferrer">${video.video}</a></td>
+        </tr>
+      `).join('');
+
+      document.getElementById('recordsBox').textContent = JSON.stringify({
+        collections: Object.fromEntries(Object.entries(records).map(([key, value]) => [key, Array.isArray(value) ? value.length : 0])),
+        latestSession: sessions[sessions.length - 1] || null,
+        latestSummary: summaries[summaries.length - 1] || null,
+      }, null, 2);
+
+      document.getElementById('exportBtn').addEventListener('click', async () => {
+        const blob = new Blob([await window.ExperimentStore.exportCsv()], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `short-video-records-${Date.now()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+
+      document.getElementById('clearBtn').addEventListener('click', async () => {
+        if (!confirm('确认清空记录？')) return;
+        await window.ExperimentStore.clear();
+        window.location.reload();
+      });
+    })();
+  </script>
+</body>
+</html>

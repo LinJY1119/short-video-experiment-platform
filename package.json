@@ -1,0 +1,10 @@
+{
+  "name": "short-video-experiment-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "配置驱动的短视频退出界面实验原型：兴趣选择、推荐序列、jsPsych 抖音式浏览任务与管理员后台雏形。",
+  "scripts": {
+    "start": "python3 -m http.server 5173",
+    "serve": "python3 -m http.server 5173"
+  }
+}
