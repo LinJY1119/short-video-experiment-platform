@@ -117,14 +117,18 @@
           accessKey: config.accessKey,
           auth: { detectSessionInUrl: true },
         });
-        const auth = app.auth;
+        const auth = typeof app.auth === 'function' ? app.auth() : app.auth;
+        const db = typeof app.database === 'function' ? app.database() : app.database;
+        if (!auth || typeof auth.signInAnonymously !== 'function') {
+          throw new Error('CloudBase auth interface unavailable');
+        }
         if (config.anonymousLogin !== false) {
           const result = await auth.signInAnonymously();
           if (result && result.error) throw result.error;
         }
         state.app = app;
         state.auth = auth;
-        state.db = app.database();
+        state.db = db;
         state.mode = 'cloudbase';
         return state.db;
       } catch (error) {
