@@ -135,7 +135,7 @@ function showIntro() {
       <li>在屏幕中间<strong>上滑</strong>切换到下一条，<strong>下滑</strong>回到上一条。</li>
       <li>按住屏幕<strong>左侧或右侧边缘</strong>为 2 倍速播放，松开恢复正常速度。</li>
       <li>轻点屏幕中间可开启或关闭声音。</li>
-      <li>到达实验时长后会自动弹出退出界面；如果你选择继续观看，会先提示你返回见数完成后测，完成后回到本页查看完成码。</li>
+      <li>如需退出，页面会先提示你返回见数继续完成问卷；完成后可按按钮继续观看或查看完成码。</li>
     </ul>
     <p>请按自己平时的习惯自由浏览。</p>
     <div class="stage-actions"><button type="button" class="runner-btn" id="startFeedBtn">开始浏览</button></div>
@@ -228,16 +228,8 @@ function feedHTML(feedItems) {
   `;
 }
 
-function metricsHTML(state) {
-  if (condition.exitNudge.type === 'basic') return '';
-  const blocks = [];
-  if ((condition.exitNudge.feedbackItems || []).includes('viewed_count')) {
-    blocks.push(`<div class="feedback-metric"><b>${state.visited.size}</b><span>已浏览视频</span></div>`);
-  }
-  if ((condition.exitNudge.feedbackItems || []).includes('watch_time')) {
-    blocks.push(`<div class="feedback-metric"><b>${formatDuration(nowMs())}</b><span>累计观看时长</span></div>`);
-  }
-  return blocks.length ? `<div class="feedback-metrics">${blocks.join('')}</div>` : '';
+function metricsHTML() {
+  return '';
 }
 
 function startFeed() {
@@ -570,7 +562,7 @@ function startFeed() {
   });
 
   function renderExitCard() {
-    const message = renderTemplate(condition.exitNudge.messageTemplate, state);
+    const message = condition.exitNudge.messageTemplate || '感谢观看视频，您现在需要去见数继续完成问卷。';
     const cancelText = escapeHtml(condition.exitNudge.cancelText || '继续观看');
     const secondary = condition.continueMode === 'hold_to_continue'
       ? `<button type="button" class="card-btn card-btn--secondary" id="cancelExitBtn"><span class="card-btn__progress" id="holdProgress"></span><span>${cancelText}</span></button>`
@@ -584,9 +576,8 @@ function startFeed() {
           </div>`
         : `<button type="button" class="card-btn card-btn--secondary" id="cancelExitBtn"><span>${cancelText}</span></button>`;
     exitCard.innerHTML = `
-      <h2>${escapeHtml(condition.exitNudge.title || '确定要退出吗？')}</h2>
+      <h2>${escapeHtml(condition.exitNudge.title || '观看提示')}</h2>
       <p>${escapeHtml(message)}</p>
-      ${metricsHTML(state)}
       <button type="button" class="card-btn card-btn--primary" id="confirmExitBtn"><span>${escapeHtml(condition.exitNudge.confirmText || '确认退出')}</span></button>
       ${secondary}
     `;
@@ -595,10 +586,9 @@ function startFeed() {
       if (state.exitReason === 'time_cap') {
         state.timeCapChoice = 'confirm_exit_button';
         logEvent('time-cap-choice', { target: 'confirm_exit_button', value: feed[state.index].sample_id });
-        exitLayer.classList.remove('is-open');
         state.exitPromptShownAt = null;
         state.exitReason = null;
-        showPosttestReminder();
+        showQuestionnaireReminder('finish');
         renderDebug('time_cap_posttest');
         return;
       }
@@ -611,100 +601,56 @@ function startFeed() {
     else if (cancelBtn) cancelBtn.addEventListener('click', cancelExit);
   }
 
-  function bindHoldContinue(cancelBtn) {
-    const required = condition.holdConfig?.requiredMs || 1500;
-    const fill = cancelBtn.querySelector('#holdProgress');
-    let start = null;
-    let raf = null;
-    function clearHold() {
-      start = null;
-      if (raf) cancelAnimationFrame(raf);
-      raf = null;
-      if (fill) fill.style.width = '0%';
-    }
-    function tick() {
-      if (start === null) return;
-      const elapsed = performance.now() - start;
-      if (fill) fill.style.width = `${Math.min(100, (elapsed / required) * 100)}%`;
-      if (elapsed >= required) {
-        clearHold();
-        cancelExit('hold_to_continue');
-        return;
-      }
-      raf = requestAnimationFrame(tick);
-    }
-    cancelBtn.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      start = performance.now();
-      logEvent('hold-continue-start', { target: 'cancel_exit_button', x: Math.round(e.clientX), y: Math.round(e.clientY) });
-      tick();
+  function renderBlockingNotice() {
+    const video = activeVideo();
+    if (video) video.pause();
+    exitCard.innerHTML = `
+      <h2>还未完成实验</h2>
+      <p>还未完成实验，再耐心刷一会儿。</p>
+      <button type="button" class="card-btn card-btn--primary" id="blockingOkBtn"><span>继续刷视频</span></button>
+    `;
+    exitLayer.classList.add('is-open');
+    document.getElementById('blockingOkBtn').addEventListener('click', () => {
+      exitLayer.classList.remove('is-open');
+      playActive();
+      renderDebug('exit_blocked_dismissed');
     });
-    ['pointerup', 'pointerleave', 'pointercancel'].forEach((evt) => cancelBtn.addEventListener(evt, () => {
-      if (start !== null) logEvent('hold-continue-cancelled', { target: 'cancel_exit_button', duration: Math.round(performance.now() - start) });
-      clearHold();
-    }));
   }
 
-  function bindSwipeContinue(container) {
-    const track = container.querySelector('#continueSliderTrack');
-    const fill = container.querySelector('#continueSliderFill');
-    const thumb = container.querySelector('#continueSliderThumb');
-    const threshold = 0.82;
-    let activePointerId = null;
-    let progress = 0;
-
-    function updateSlider(nextProgress) {
-      progress = Math.max(0, Math.min(1, nextProgress));
-      const percent = progress * 100;
-      if (fill) fill.style.width = `${percent}%`;
-      if (thumb) thumb.style.left = `calc(${percent}% - ${thumb.offsetWidth / 2}px)`;
-      if (track) track.dataset.progress = String(progress);
-    }
-
-    function resetSlider() {
-      updateSlider(0);
-    }
-
-    function completeSlider() {
-      updateSlider(1);
-      cancelExit('swipe_to_continue');
-      window.setTimeout(resetSlider, 120);
-    }
-
-    function startDrag(event) {
-      event.preventDefault();
-      if (activePointerId !== null) return;
-      activePointerId = event.pointerId;
-      track?.setPointerCapture?.(event.pointerId);
-      logEvent('swipe-continue-start', { target: 'continue_slider', x: Math.round(event.clientX), y: Math.round(event.clientY) });
-      moveDrag(event);
-    }
-
-    function moveDrag(event) {
-      if (activePointerId !== event.pointerId || !track) return;
-      const rect = track.getBoundingClientRect();
-      const nextProgress = (event.clientX - rect.left) / rect.width;
-      updateSlider(nextProgress);
-    }
-
-    function endDrag(event) {
-      if (activePointerId !== event.pointerId) return;
-      const finalProgress = progress;
-      logEvent('swipe-continue-end', { target: 'continue_slider', x: Math.round(event.clientX), y: Math.round(event.clientY), value: finalProgress });
-      activePointerId = null;
-      if (finalProgress >= threshold) completeSlider();
-      else resetSlider();
-    }
-
-    resetSlider();
-    ['pointerdown'].forEach((evt) => track.addEventListener(evt, startDrag));
-    ['pointermove'].forEach((evt) => track.addEventListener(evt, moveDrag));
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach((evt) => track.addEventListener(evt, endDrag));
-    thumb.addEventListener('pointerdown', startDrag);
+  function showQuestionnaireReminder(mode = 'resume') {
+    const buttonText = mode === 'finish' ? '我已完成，查看完成码' : '我已完成，继续观看';
+    const buttonAction = mode === 'finish' ? '查看完成码' : '继续观看';
+    const video = activeVideo();
+    if (video) video.pause();
+    exitCard.innerHTML = `
+      <h2>观看提示</h2>
+      <p>感谢观看视频，您现在需要去见数继续完成问卷。完成后点击下方按钮${buttonAction}。</p>
+      <button type="button" class="card-btn card-btn--primary" id="questionnaireDoneBtn"><span>${buttonText}</span></button>
+    `;
+    exitLayer.classList.add('is-open');
+    document.getElementById('questionnaireDoneBtn').addEventListener('click', async () => {
+      exitLayer.classList.remove('is-open');
+      state.exitPromptShownAt = null;
+      state.exitReason = null;
+      if (mode === 'finish') {
+        await finish('time_cap_posttest_done');
+        return;
+      }
+      playActive();
+      renderDebug('resume_after_questionnaire');
+    });
   }
 
   function openExit(e, reason = 'manual') {
     if (exitLayer.classList.contains('is-open')) return;
+    const unlockAtMs = condition.study === '2b'
+      ? Number(condition.visualTreatment.applyAtSec || 0) * 1000
+      : 0;
+    if (unlockAtMs > 0 && nowMs() < unlockAtMs) {
+      logEvent('exit-blocked', { target: 'exit_button', x: e ? Math.round(e.clientX) : null, y: e ? Math.round(e.clientY) : null, value: feed[state.index].sample_id });
+      renderBlockingNotice();
+      return;
+    }
     state.exitOpened += 1;
     state.exitPromptShownAt = performance.now();
     state.exitReason = reason;
@@ -717,37 +663,8 @@ function startFeed() {
     renderDebug('open_exit');
   }
 
-  function showPosttestReminder() {
-    const choiceText = state.timeCapChoice === 'confirm_exit_button'
-      ? '你在自动弹出的退出界面中选择了退出。'
-      : state.timeCapChoice === 'cancel_exit_button'
-        ? '你在自动弹出的退出界面中选择了继续观看。'
-        : '你已到达当前阶段的观看时长。';
-    renderPlainStage(`
-      <h1>请先完成后测</h1>
-      <p>${choiceText}系统已记录该选择。请返回见数，完成后测问卷与操纵检验题项；完成后返回本页面查看完成码。</p>
-      <ul>
-        <li>状态反思性手机脱离量表</li>
-        <li>感知过度使用测量</li>
-        <li>愉悦感量表</li>
-        <li>感知控制压力水平测量</li>
-        <li>自主性感知量表</li>
-        <li>状态心理抗拒测量</li>
-        <li>用户体验问卷简版</li>
-        <li>退出意愿测量</li>
-        <li>操纵检验题项：视频饱和度是否发生变化</li>
-      </ul>
-      <p>完成后点击下方按钮查看完成码。</p>
-      <div class="stage-actions"><button type="button" class="runner-btn" id="posttestDoneBtn">我已完成后测，查看完成码</button></div>
-    `);
-    document.getElementById('posttestDoneBtn').addEventListener('click', () => {
-      void finish('time_cap_posttest_done');
-    });
-  }
-
   function cancelExit(method = 'cancel_exit_button') {
     state.cancelCount += 1;
-    exitLayer.classList.remove('is-open');
     logEvent('exit-prompt-cancel', { target: method, duration: Math.round(performance.now() - state.exitPromptShownAt), value: feed[state.index].sample_id });
     const exitReason = state.exitReason;
     state.exitPromptShownAt = null;
@@ -755,12 +672,12 @@ function startFeed() {
     if (exitReason === 'time_cap') {
       state.timeCapChoice = 'cancel_exit_button';
       logEvent('time-cap-choice', { target: 'cancel_exit_button', value: feed[state.index].sample_id });
-      showPosttestReminder();
+      showQuestionnaireReminder('finish');
       renderDebug('time_cap_posttest');
       return;
     }
-    playActive();
-    renderDebug('cancel_exit');
+    showQuestionnaireReminder('resume');
+    renderDebug('questionnaire_reminder');
   }
 
   async function finish(method) {
@@ -875,9 +792,8 @@ function startFeed() {
 
 function showOutro(summary, completionCode) {
   renderPlainStage(`
-    <h1>本环节结束</h1>
-    <p>你已结束短视频浏览。本次共浏览 ${summary.videos_viewed ?? 0} 条视频，累计观看 ${Math.round((summary.total_dwell_ms ?? 0) / 1000)} 秒。</p>
-    <p>请返回见数 / 问卷平台，点击下方按钮复制完成码并手动填写。</p>
+    <h1>感谢观看视频</h1>
+    <p>您现在需要去见数继续完成问卷。完成后请返回本页面复制下方完成码并填写。</p>
     <div class="completion-code-box">
       <span class="completion-code-label">完成码</span>
       <strong id="completionCodeText">${escapeHtml(completionCode || '')}</strong>
@@ -892,14 +808,14 @@ function showOutro(summary, completionCode) {
     const code = codeText.textContent || '';
     try {
       await navigator.clipboard.writeText(code);
-      feedback.textContent = '已复制完成码，请返回见数 / 问卷平台手动填写。';
+      feedback.textContent = '已复制完成码，请返回见数手动填写。';
     } catch (error) {
       const selection = window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(codeText);
       selection.removeAllRanges();
       selection.addRange(range);
-      feedback.textContent = '请手动长按复制完成码，再返回见数 / 问卷平台填写。';
+      feedback.textContent = '请手动长按复制完成码，再返回见数填写。';
     }
   });
 }

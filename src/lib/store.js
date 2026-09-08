@@ -22,6 +22,8 @@
     db: null,
     initError: null,
     initPromise: null,
+    lastWriteSource: null,
+    lastWriteError: null,
   };
 
   function makeId(prefix) {
@@ -238,12 +240,20 @@
     const next = normalizeRemoteRecord(input, field, existing);
 
     const db = await getDb();
-    if (!db) return upsertLocal(name, next, field);
+    if (!db) {
+      state.lastWriteSource = 'local';
+      state.lastWriteError = state.initError ? String(state.initError.message || state.initError) : null;
+      return upsertLocal(name, next, field);
+    }
 
     try {
       await db.collection(name).doc(docId).set(next);
+      state.lastWriteSource = 'cloudbase';
+      state.lastWriteError = null;
       return next;
     } catch (error) {
+      state.lastWriteSource = 'local';
+      state.lastWriteError = String(error && error.message ? error.message : error);
       return upsertLocal(name, next, field);
     }
   }
@@ -257,12 +267,20 @@
     input.updatedAt = now;
 
     const db = await getDb();
-    if (!db) return appendLocal(name, input);
+    if (!db) {
+      state.lastWriteSource = 'local';
+      state.lastWriteError = state.initError ? String(state.initError.message || state.initError) : null;
+      return appendLocal(name, input);
+    }
 
     try {
       await db.collection(name).doc(docId).set(input);
+      state.lastWriteSource = 'cloudbase';
+      state.lastWriteError = null;
       return input;
     } catch (error) {
+      state.lastWriteSource = 'local';
+      state.lastWriteError = String(error && error.message ? error.message : error);
       return appendLocal(name, input);
     }
   }
@@ -474,6 +492,12 @@
     },
     get initError() {
       return state.initError;
+    },
+    get lastWriteSource() {
+      return state.lastWriteSource;
+    },
+    get lastWriteError() {
+      return state.lastWriteError;
     },
     whenReady: initCloudBase(),
     readAll,

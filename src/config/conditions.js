@@ -24,13 +24,15 @@
     saveExitAttempts: true,
   };
 
-  const basicExit = {
+  const genericExit = {
     type: 'basic',
-    title: '确定要退出吗？',
-    messageTemplate: '退出后将结束本次观看，并记录你的浏览行为。',
+    title: '观看提示',
+    messageTemplate: '感谢观看视频，您现在需要去见数继续完成问卷。',
     confirmText: '确认退出',
     cancelText: '继续观看',
   };
+
+  const basicExit = genericExit;
 
   function condition(study, conditionId, name, overrides) {
     return {
@@ -46,7 +48,7 @@
       },
       browsing: { ...baseBrowsing, ...(overrides.browsing || {}) },
       recommendation: { ...baseRecommendation, ...(overrides.recommendation || {}) },
-      exitNudge: { ...basicExit, ...(overrides.exitNudge || {}) },
+      exitNudge: { ...genericExit, ...(overrides.exitNudge || {}) },
       continueMode: overrides.continueMode || 'tap_cancel',
       holdConfig: overrides.holdConfig || null,
       swipeConfig: overrides.swipeConfig || null,
@@ -68,33 +70,6 @@
     };
   }
 
-  const feedbackMessages = {
-    time: {
-      type: 'time_feedback',
-      title: '浏览状态提醒',
-      messageTemplate: '你已经累计观看 {{watch_time}}。是否结束本次浏览？',
-      confirmText: '结束浏览',
-      cancelText: '滑动继续观看',
-      feedbackItems: ['watch_time'],
-    },
-    count: {
-      type: 'count_feedback',
-      title: '浏览状态提醒',
-      messageTemplate: '你已经浏览 {{viewed_count}} 条视频。是否结束本次浏览？',
-      confirmText: '结束浏览',
-      cancelText: '滑动继续观看',
-      feedbackItems: ['viewed_count'],
-    },
-    combined: {
-      type: 'combined_feedback',
-      title: '浏览状态提醒',
-      messageTemplate: '你已经浏览 {{viewed_count}} 条视频，累计观看 {{watch_time}}。是否结束本次浏览？',
-      confirmText: '结束浏览',
-      cancelText: '滑动继续观看',
-      feedbackItems: ['viewed_count', 'watch_time'],
-    },
-  };
-
   window.EXPERIMENTS = [
     {
       id: '1a',
@@ -114,7 +89,7 @@
     {
       id: '2b',
       title: '研究2B：界面饱和度与呈现时间',
-      summary: '按组别在 5、10、15 分钟各发生一次饱和度变化，20 分钟自动弹出退出界面并强制进入后测。',
+      summary: '按组别在 5、10、15 分钟各发生一次饱和度变化，20 分钟自动弹出退出界面并强制进入后续步骤。',
     },
   ];
 
@@ -124,8 +99,8 @@
       notes: '退出界面仅提供确认与取消按钮。',
     }),
     condition('1a', 'g2', '研究1A-G2：信息反馈组', {
-      exitNudge: feedbackMessages.combined,
-      notes: '退出界面显示已浏览条数与累计观看时长。',
+      exitNudge: basicExit,
+      notes: '退出界面使用通用结束提示。',
     }),
 
     condition('1b', 'g1', '研究1B-G1：正常色彩组', {
@@ -142,32 +117,32 @@
       continueMode: 'tap_cancel',
     }),
     condition('2a', 'g2', '研究2A-G2：时间反馈-滑动继续', {
-      exitNudge: { ...feedbackMessages.time, cancelText: '滑动继续观看' },
+      exitNudge: { ...basicExit, cancelText: '滑动继续观看' },
       continueMode: 'swipe_to_continue',
       swipeConfig: { direction: 'up', instructionText: '滑动继续观看' },
     }),
     condition('2a', 'g3', '研究2A-G3：条数反馈-滑动继续', {
-      exitNudge: { ...feedbackMessages.count, cancelText: '滑动继续观看' },
+      exitNudge: { ...basicExit, cancelText: '滑动继续观看' },
       continueMode: 'swipe_to_continue',
       swipeConfig: { direction: 'up', instructionText: '滑动继续观看' },
     }),
     condition('2a', 'g4', '研究2A-G4：组合反馈-滑动继续', {
-      exitNudge: { ...feedbackMessages.combined, cancelText: '滑动继续观看' },
+      exitNudge: { ...basicExit, cancelText: '滑动继续观看' },
       continueMode: 'swipe_to_continue',
       swipeConfig: { direction: 'up', instructionText: '滑动继续观看' },
     }),
     condition('2a', 'g5', '研究2A-G5：时间反馈-长按继续', {
-      exitNudge: { ...feedbackMessages.time, cancelText: '长按继续观看' },
+      exitNudge: { ...basicExit, cancelText: '长按继续观看' },
       continueMode: 'hold_to_continue',
       holdConfig: { requiredMs: 1500, progressText: '长按继续观看' },
     }),
     condition('2a', 'g6', '研究2A-G6：条数反馈-长按继续', {
-      exitNudge: { ...feedbackMessages.count, cancelText: '长按继续观看' },
+      exitNudge: { ...basicExit, cancelText: '长按继续观看' },
       continueMode: 'hold_to_continue',
       holdConfig: { requiredMs: 1500, progressText: '长按继续观看' },
     }),
     condition('2a', 'g7', '研究2A-G7：组合反馈-长按继续', {
-      exitNudge: { ...feedbackMessages.combined, cancelText: '长按继续观看' },
+      exitNudge: { ...basicExit, cancelText: '长按继续观看' },
       continueMode: 'hold_to_continue',
       holdConfig: { requiredMs: 1500, progressText: '长按继续观看' },
     }),

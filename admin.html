@@ -127,7 +127,7 @@
       });
 
       const modeLabel = document.getElementById('cloudbaseModeLabel');
-      modeLabel.textContent = `当前连接模式：${window.ExperimentStore.getMode()}`;
+      modeLabel.textContent = `当前连接模式：${window.ExperimentStore.getMode()} | 最近写入：${window.ExperimentStore.lastWriteSource || '暂无'}`;
 
       document.getElementById('probeBtn').addEventListener('click', async () => {
         const record = {
@@ -139,7 +139,12 @@
           createdAt: Date.now(),
         };
         const saved = await window.ExperimentStore.append('audit_logs', record);
-        document.getElementById('probeBox').textContent = JSON.stringify(saved, null, 2);
+        document.getElementById('probeBox').textContent = JSON.stringify({
+          saved,
+          mode: window.ExperimentStore.getMode(),
+          lastWriteSource: window.ExperimentStore.lastWriteSource,
+          lastWriteError: window.ExperimentStore.lastWriteError,
+        }, null, 2);
       });
 
       document.getElementById('clearBtn').addEventListener('click', async () => {
