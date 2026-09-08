@@ -53,6 +53,16 @@
       <h2>记录概览</h2>
       <pre class="codebox" id="recordsBox"></pre>
     </section>
+
+    <section class="panel">
+      <h2>云端写入测试</h2>
+      <p class="muted">点击按钮向 audit_logs 写入一条测试记录，然后到 CloudBase 控制台查看该集合是否新增文档。</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn--primary" id="probeBtn" type="button">写入测试记录</button>
+        <span class="muted" id="cloudbaseModeLabel"></span>
+      </div>
+      <pre class="codebox" id="probeBox">尚未写入测试记录。</pre>
+    </section>
   </main>
 
   <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
@@ -114,6 +124,22 @@
         a.download = `short-video-records-${Date.now()}.csv`;
         a.click();
         URL.revokeObjectURL(url);
+      });
+
+      const modeLabel = document.getElementById('cloudbaseModeLabel');
+      modeLabel.textContent = `当前连接模式：${window.ExperimentStore.getMode()}`;
+
+      document.getElementById('probeBtn').addEventListener('click', async () => {
+        const record = {
+          id: `probe_${Date.now()}`,
+          type: 'cloudbase_probe',
+          message: 'CloudBase 写入测试',
+          mode: window.ExperimentStore.getMode(),
+          source: 'admin.html',
+          createdAt: Date.now(),
+        };
+        const saved = await window.ExperimentStore.append('audit_logs', record);
+        document.getElementById('probeBox').textContent = JSON.stringify(saved, null, 2);
       });
 
       document.getElementById('clearBtn').addEventListener('click', async () => {
