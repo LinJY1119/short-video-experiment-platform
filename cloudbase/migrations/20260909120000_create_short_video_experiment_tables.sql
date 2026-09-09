@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS public.feed_summaries (
   exit_method text,
   time_cap_choice text,
   start_epoch_ms bigint,
+  exit_epoch_ms bigint,
   videos_viewed integer,
   last_index integer,
   total_feed_ms bigint,

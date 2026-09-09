@@ -35,8 +35,11 @@
 实际 migration 文件在：
 
 ```text
-cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql
+cloudbase/migrations/20260909120000_create_short_video_experiment_tables.sql
+cloudbase/migrations/20260909220000_add_feed_exit_epoch_ms.sql
 ```
+
+已经创建 7 张表的环境只需执行第二个增量 migration，即可增加 `feed_summaries.exit_epoch_ms`，不会删除已有记录。
 
 建议由该 migration 创建以下列：
 
@@ -101,7 +104,8 @@ cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql
 - `condition text`
 - `exit_method text`
 - `time_cap_choice text`
-- `start_epoch_ms bigint`
+- `start_epoch_ms bigint`（进入视频信息流任务的 Unix 毫秒时间）
+- `exit_epoch_ms bigint`（结束浏览任务并写入完成记录的 Unix 毫秒时间）
 - `videos_viewed integer`
 - `last_index integer`
 - `total_feed_ms bigint`
@@ -124,6 +128,8 @@ cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql
 - `event_count integer`
 - `created_at timestamptz`
 - `updated_at timestamptz`
+
+其中，`total_feed_ms` 是从 `start_epoch_ms` 到 `exit_epoch_ms` 的任务持续时长（单位：毫秒），包括退出提示或问卷提醒界面停留时间；`total_dwell_ms` 是各视频停留时长之和。
 
 ### `feed_events`
 
@@ -216,7 +222,7 @@ cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql
 ## CloudBase 控制台要做什么
 
 1. 确认当前环境 `video-d3g9diest3dcce7b7` 已启用 PostgreSQL。
-2. 打开 PG SQL / migration 界面，执行 migration 文件 `cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql`。
+2. 打开 PG SQL / migration 界面，执行 migration 文件 `cloudbase/migrations/20260909120000_create_short_video_experiment_tables.sql`。
 3. 检查表是否创建成功，特别是 `audit_logs`、`participant_sessions`、`feed_summaries`。
 4. 用管理员后台的“写入测试记录”按钮验证：页面显示 `lastWriteSource: cloudbase`。
 5. 再跑完整实验流程，确认数据能写入 PG 并能导出 CSV。

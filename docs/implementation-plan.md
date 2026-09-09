@@ -10,7 +10,7 @@
 4. 系统按 70% 偏好类别 + 30% 非偏好类别生成推荐序列。
 5. 进入短视频运行器抖音式手机壳浏览任务。
 6. 根据条件配置显示不同退出界面、继续方式和视觉处理。
-7. 浏览摘要与行为日志写入 CloudBase PostgreSQL；如果云端暂时不可用，再回退到 `localStorage`。
+7. 浏览摘要与行为日志写入 CloudBase PostgreSQL；数据库时间型字段使用 ISO 8601 字符串，实验时长和时间点保留 Unix 毫秒值；如果云端暂时不可用，再回退到 `localStorage`。
 8. 如 URL 中包含 `returnUrl`，完成后回跳问卷平台。
 
 ## 2. URL 设计
@@ -233,7 +233,8 @@ audit_logs
 当前已经准备好 migration 文件：
 
 ```text
-cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql
+cloudbase/migrations/20260909120000_create_short_video_experiment_tables.sql
+cloudbase/migrations/20260909220000_add_feed_exit_epoch_ms.sql
 ```
 
 建议在 CloudBase 控制台执行的顺序：

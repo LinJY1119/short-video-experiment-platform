@@ -61,14 +61,17 @@ https://experiment.yourdomain.com/entry.html?study=2a&condition=g7&name=张三&s
 迁移文件在：
 
 ```text
-cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql
+cloudbase/migrations/20260909120000_create_short_video_experiment_tables.sql
+cloudbase/migrations/20260909220000_add_feed_exit_epoch_ms.sql
 ```
+
+如果 7 张表已经创建，只需再执行第二个增量迁移，为 `feed_summaries` 增加 `exit_epoch_ms` 字段；不需要删除已有数据或重建表。
 
 ## 平台分工
 
 - EdgeOne Pages：存放网页入口、运行器与后台页面。
 - COS：存放 `.mp4` 与 `.jpg` 素材文件。
-- CloudBase PostgreSQL：存放 session、偏好选择、推荐序列、浏览摘要、行为日志与完成记录。
+- CloudBase PostgreSQL：存放 session、偏好选择、推荐序列、浏览摘要、行为日志与完成记录；数据库时间型字段写入 ISO 8601 字符串，实验测量字段保存 Unix 毫秒值。
 - 本前端：负责条件解析、兴趣选择、推荐序列生成、短视频运行器浏览任务与回跳问卷平台。
 
 ## 视频地址替换
@@ -120,13 +123,13 @@ src/lib/store.js              浏览器数据层，优先 CloudBase PostgreSQL�
 src/runner/runner.js          复用并配置化的短视频运行器抖音式浏览任务
 src/styles/runner.css         从原模板迁移的手机壳与信息流样式
 src/styles/site.css           入口页与后台样式
-cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql  PostgreSQL 迁移
+cloudbase/migrations/20260909120000_create_short_video_experiment_tables.sql  PostgreSQL 迁移
 ```
 
 ## CloudBase 控制台要做什么
 
 1. 确认环境 `video-d3g9diest3dcce7b7` 已启用 PostgreSQL。
-2. 执行 `cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql`。
+2. 执行 `cloudbase/migrations/20260909120000_create_short_video_experiment_tables.sql`。
 3. 检查 `participant_sessions`、`feed_summaries`、`audit_logs` 是否创建成功。
 4. 打开 `admin.html`，点击“写入测试记录”，确认页面显示 `lastWriteSource: cloudbase`。
 5. 跑完整实验流程：入口页提交、运行页完成、导出 CSV。

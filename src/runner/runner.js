@@ -689,6 +689,8 @@ function startFeed() {
     if (state.speedZone) state.speedTotalMs += Math.round(performance.now() - state.speedStartAt);
     videos.forEach((v) => v.pause());
     const decisionLatency = state.exitPromptShownAt ? Math.round(performance.now() - state.exitPromptShownAt) : null;
+    const exitEpochMs = Date.now();
+    const totalFeedMs = nowMs();
     logEvent('feed-finish', { target: method, value: feed[state.index].sample_id });
 
     const summary = {
@@ -699,9 +701,10 @@ function startFeed() {
       exit_method: method,
       time_cap_choice: state.timeCapChoice ?? '',
       start_epoch_ms: startEpoch,
+      exit_epoch_ms: exitEpochMs,
       videos_viewed: state.visited.size,
       last_index: state.index,
-      total_feed_ms: nowMs(),
+      total_feed_ms: totalFeedMs,
       total_dwell_ms: state.dwellMs.reduce((a, b) => a + b, 0),
       swipe_next_count: state.swipeNext,
       swipe_prev_count: state.swipePrev,
@@ -758,7 +761,8 @@ function startFeed() {
         returnUrl,
         selectedCategories: fallbackCategories,
         status: 'feed_completed',
-        completedAt: Date.now(),
+        feedStartedAt: startEpoch,
+        completedAt: exitEpochMs,
         completionCode,
       }),
     ]);
