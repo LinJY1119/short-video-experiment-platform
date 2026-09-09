@@ -11,7 +11,7 @@
     <header class="site-topbar">
       <div class="brand-lockup">
         <strong>管理员后台雏形</strong>
-        <span>当前为本地预览版；CloudBase 接入后替换 localStorage 数据源。</span>
+        <span>当前连接 CloudBase PostgreSQL；localStorage 仅作兜底。</span>
       </div>
       <nav class="nav-links">
         <a href="index.html">实验入口</a>
@@ -22,8 +22,8 @@
 
     <section class="hero">
       <div class="hero-card">
-        <h1>后台先管理配置，后续再接入真实云端。</h1>
-        <p>管理员后台的核心不是重写实验，而是维护条件配置、视频元数据、分配规则和数据导出。当前页面展示 20 个条件、5 类内容、视频素材清单，以及记录概览。</p>
+        <h1>后台先管理配置，再确认云端写入链路。</h1>
+        <p>管理员后台用于查看条件配置、视频素材与实验记录，并通过 CloudBase PostgreSQL 直接导出数据。页面保留 localStorage 兜底，但真正的写入目标应当是 PG 表而不是浏览器缓存。</p>
       </div>
       <div class="panel stat-grid" id="stats"></div>
     </section>
@@ -56,7 +56,7 @@
 
     <section class="panel">
       <h2>云端写入测试</h2>
-      <p class="muted">点击按钮向 audit_logs 写入一条测试记录，然后到 CloudBase 控制台查看该集合是否新增文档。</p>
+      <p class="muted">点击按钮向 <code>audit_logs</code> 写入一条测试记录，然后到 CloudBase 控制台检查 PostgreSQL 表是否新增记录。</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
         <button class="btn btn--primary" id="probeBtn" type="button">写入测试记录</button>
         <span class="muted" id="cloudbaseModeLabel"></span>
@@ -133,7 +133,7 @@
         const record = {
           id: `probe_${Date.now()}`,
           type: 'cloudbase_probe',
-          message: 'CloudBase 写入测试',
+          message: 'CloudBase PostgreSQL 写入测试',
           mode: window.ExperimentStore.getMode(),
           source: 'admin.html',
           createdAt: Date.now(),

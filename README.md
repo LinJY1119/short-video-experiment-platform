@@ -5,8 +5,8 @@
 - 一个统一实验站承载 1A、1B、2A、2B 的 20 个实验条件。
 - 被试进入后先选择 5 类短视频内容偏好中的 1–3 类。
 - 系统按 70% 偏好类别 + 30% 非偏好类别生成推荐序列。
-- 刷视频界面复用 `credamo-jspsych-demo` 的抖音式手机壳 UI 与交互，但当前实现已改为纯前端 JavaScript，不再依赖 短视频运行器 或 Credamo。
-- 当前先用浏览器 `localStorage` 模拟数据记录，后续可替换为 CloudBase 数据库。
+- 刷视频界面复用 `credamo-jspsych-demo` 的抖音式手机壳 UI 与交互，但当前实现已改为纯前端 JavaScript，不再依赖短视频运行器或 Credamo。
+- 数据层已经切换为 CloudBase PostgreSQL；浏览器端仍保留 `localStorage` 作为兜底，但正式实验数据应写入 PG。
 - 当前不包含 Credamo / 见数专用接口，按普通网页部署处理。
 
 ## 本地运行
@@ -43,15 +43,33 @@ https://experiment.yourdomain.com/entry.html?study=2a&condition=g7&name=张三&s
 当前前端已预留 CloudBase 浏览器直连能力：
 
 - [src/config/cloudbase.js](src/config/cloudbase.js) 里填写 CloudBase `env` 与 `accessKey`。
-- 页面通过 CloudBase Web SDK 直连数据库，未配置时会自动回退到本地 `localStorage` 预览。
+- 页面通过 CloudBase Web SDK 直连 PostgreSQL，未配置时会自动回退到本地 `localStorage` 预览。
 - 入口页、运行页和管理员页都已加载 CloudBase SDK，并沿用同一套 `window.ExperimentStore` 接口；管理员页可直接导出 CSV。
+
+## PostgreSQL 版数据结构
+
+业务数据只落这 7 张表：
+
+- `participant_sessions`
+- `preference_responses`
+- `assigned_feeds`
+- `feed_summaries`
+- `feed_events`
+- `completion_records`
+- `audit_logs`
+
+迁移文件在：
+
+```text
+cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql
+```
 
 ## 平台分工
 
 - EdgeOne Pages：存放网页入口、运行器与后台页面。
 - COS：存放 `.mp4` 与 `.jpg` 素材文件。
-- CloudBase：存放实验配置、session、偏好选择、推荐序列、浏览摘要、行为日志与完成记录。
-- 本前端：负责条件解析、兴趣选择、推荐序列生成、短视频运行器 浏览任务与回跳问卷平台。
+- CloudBase PostgreSQL：存放 session、偏好选择、推荐序列、浏览摘要、行为日志与完成记录。
+- 本前端：负责条件解析、兴趣选择、推荐序列生成、短视频运行器浏览任务与回跳问卷平台。
 
 ## 视频地址替换
 
@@ -71,7 +89,7 @@ src/config/videos.js
 中的：
 
 ```js
-const remoteBase = 'https://media.cloud-bridge.cn/stimuli/';
+const remoteBase = 'https://media.cloud-bridge.cn/stimuli/'
 ```
 
 并在非 localhost 环境自动使用远程素材地址。也可以临时通过 URL 参数覆盖：
@@ -83,23 +101,33 @@ const remoteBase = 'https://media.cloud-bridge.cn/stimuli/';
 ## CloudBase 运行说明
 
 - 浏览器端使用 `window.ExperimentStore` 作为统一数据接口。
-- CloudBase 相关参数放在 [src/config/cloudbase.js](src/config/cloudbase.js)。
+- CloudBase 相关参数放在 [src/config/cloudbase.js](src/config/cloudbase.js) 中。
 - 入口页、运行页、管理员页均已加载 CloudBase SDK；若未配置参数，则自动回退到本地预览模式。
-- 若要启用云端写入，需要在 CloudBase 控制台为当前环境开启匿名登录，并给 `participant_sessions`、`preference_responses`、`assigned_feeds`、`feed_summaries`、`feed_events`、`completion_records` 配好对应权限。
+- 管理员页的“写入测试记录”按钮会向 `audit_logs` 写探针记录，用来确认 PostgreSQL 表、权限和写入链路是否正常。
 
 ## 主要文件
 
 ```text
 index.html                    实验条件入口列表
 entry.html                    被试进入页与兴趣选择
-runner.html                   短视频运行器 浏览任务容器
+runner.html                   短视频运行器浏览任务容器
 admin.html                    管理员后台雏形
 src/config/categories.js      5 类短视频分类
 src/config/videos.js          视频素材元数据
 src/config/conditions.js      20 个实验条件配置
 src/lib/recommendation.js     推荐序列生成逻辑
-src/lib/store.js              浏览器数据层，优先 CloudBase，失败时回退 localStorage
-src/runner/runner.js          复用并配置化的 短视频运行器 抖音式浏览任务
+src/lib/store.js              浏览器数据层，优先 CloudBase PostgreSQL，失败时回退 localStorage
+src/runner/runner.js          复用并配置化的短视频运行器抖音式浏览任务
 src/styles/runner.css         从原模板迁移的手机壳与信息流样式
 src/styles/site.css           入口页与后台样式
+cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql  PostgreSQL 迁移
 ```
+
+## CloudBase 控制台要做什么
+
+1. 确认环境 `video-d3g9diest3dcce7b7` 已启用 PostgreSQL。
+2. 执行 `cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql`。
+3. 检查 `participant_sessions`、`feed_summaries`、`audit_logs` 是否创建成功。
+4. 打开 `admin.html`，点击“写入测试记录”，确认页面显示 `lastWriteSource: cloudbase`。
+5. 跑完整实验流程：入口页提交、运行页完成、导出 CSV。
+6. 如果写入回退到本地，优先查看 `lastWriteError`，再排查表结构、权限或 SDK 初始化。

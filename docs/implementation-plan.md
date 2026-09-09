@@ -8,9 +8,9 @@
 2. 填写或确认被试姓名。
 3. 从 5 类短视频内容中选择 1–3 类偏好。
 4. 系统按 70% 偏好类别 + 30% 非偏好类别生成推荐序列。
-5. 进入 短视频运行器 抖音式手机壳浏览任务。
+5. 进入短视频运行器抖音式手机壳浏览任务。
 6. 根据条件配置显示不同退出界面、继续方式和视觉处理。
-7. 浏览摘要与行为日志先写入 `localStorage`。
+7. 浏览摘要与行为日志写入 CloudBase PostgreSQL；如果云端暂时不可用，再回退到 `localStorage`。
 8. 如 URL 中包含 `returnUrl`，完成后回跳问卷平台。
 
 ## 2. URL 设计
@@ -38,7 +38,7 @@
 /admin.html
 ```
 
-当前为只读雏形，后续接 CloudBase 后可改为登录后访问。
+当前为只读雏形，后续可继续扩展为登录后编辑配置的后台。
 
 ## 3. 20 个实验条件
 
@@ -119,29 +119,26 @@ src/styles/runner.css
 
 ## 6. CloudBase 数据表设计
 
-后续接 CloudBase 时，建议用以下集合：
+后续接 CloudBase 时，建议使用 PostgreSQL 表：
 
 ```text
-experiments
-experiment_conditions
-video_assets
 participant_sessions
 preference_responses
 assigned_feeds
 feed_summaries
 feed_events
 completion_records
-admin_users
 audit_logs
 ```
 
-当前原型中，`src/lib/store.js` 用 `localStorage` 模拟这些集合。
+当前原型中，`src/lib/store.js` 已从文档数据库写法切换到 CloudBase PostgreSQL；若云端暂时不可用，再回退到 `localStorage`。
 
 ### participant_sessions
 
 ```json
 {
   "id": "sess_xxx",
+  "sessionId": "sess_xxx",
   "participantName": "张三",
   "source": "wjx",
   "study": "2a",
@@ -212,7 +209,7 @@ audit_logs
 
 ### feed_events
 
-建议按 session 分片存，不建议每个事件一条记录：
+建议按 session 分片存：
 
 ```json
 {
@@ -231,7 +228,24 @@ audit_logs
 }
 ```
 
-## 7. COS 素材目录
+## 7. CloudBase PostgreSQL 迁移
+
+当前已经准备好 migration 文件：
+
+```text
+cloudbase/migrations/20260908153000_create_short_video_experiment_tables.sql
+```
+
+建议在 CloudBase 控制台执行的顺序：
+
+1. 确认环境 `video-d3g9diest3dcce7b7` 已启用 PostgreSQL。
+2. 执行上述 migration。
+3. 检查 7 张业务表是否创建成功。
+4. 打开 `admin.html`，点击“写入测试记录”，确认 `audit_logs` 能写入。
+5. 再跑完整实验流程，确认 `participant_sessions`、`preference_responses`、`assigned_feeds`、`feed_summaries`、`feed_events`、`completion_records` 都有记录。
+6. 导出 CSV，检查字段合并是否正常。
+
+## 8. COS 素材目录
 
 建议素材目录结构：
 
@@ -245,18 +259,13 @@ stimuli/
     └── ...
 ```
 
-CloudBase 的 `video_assets` 只存 URL：
+CloudBase 的 `video_assets` 目前只作为前端静态配置使用，不是本次必改项。
 
-```text
-https://media.cloud-bridge.cn/stimuli/video/xxx.mp4
-https://media.cloud-bridge.cn/stimuli/cover/xxx.jpg
-```
-
-## 8. 后续开发顺序
+## 9. 后续开发顺序
 
 1. 用当前原型确认 20 个条件的实验逻辑是否符合正式设计。
 2. 补足真实视频素材，并为每条素材标注 5 类主分类。
-3. 把 `src/config/videos.js` 的远程素材地址替换为 COS 域名 `media.cloud-bridge.cn`。
-4. 接入 CloudBase，把 `src/lib/store.js` 替换为真实数据库写入.
-5. 管理后台加入 CloudBase 登录和配置编辑。
-6. 做数据导出：sessions、preference_responses、assigned_feeds、feed_summaries、feed_events。
+3. 将远程素材地址切换为正式 COS 域名。
+4. 继续以 CloudBase PostgreSQL 作为数据层，完善表结构与导出字段。
+5. 管理后台加入更完整的配置编辑能力。
+6. 继续验证 session、feed、summary、completion 全链路数据写入。
