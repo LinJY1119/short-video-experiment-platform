@@ -129,7 +129,7 @@ cloudbase/migrations/20260909220000_add_feed_exit_epoch_ms.sql
 - `created_at timestamptz`
 - `updated_at timestamptz`
 
-其中，`total_feed_ms` 是从 `start_epoch_ms` 到 `exit_epoch_ms` 的任务持续时长（单位：毫秒），包括退出提示或问卷提醒界面停留时间；`total_dwell_ms` 是各视频停留时长之和。
+其中，`total_feed_ms` 是有效刷视频累计时长（单位：毫秒），不包括“继续观看 / 退出”选择界面、去见数做题提示界面及返回等待时间；`start_epoch_ms` 与 `exit_epoch_ms` 是第一次开始浏览和最终结束任务的绝对时间点，二者差值可反映页面总体跨度，但不等同于有效刷视频时长；`total_dwell_ms` 是各视频停留时长之和。
 
 ### `feed_events`
 

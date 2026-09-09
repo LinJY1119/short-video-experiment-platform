@@ -64,9 +64,29 @@ const ICONS = {
 let events = [];
 let startedAt = 0;
 let startEpoch = 0;
+let accumulatedFeedMs = 0;
+let feedTimerRunning = false;
+
+function resetFeedTimer() {
+  accumulatedFeedMs = 0;
+  startedAt = performance.now();
+  feedTimerRunning = true;
+}
+
+function pauseFeedTimer() {
+  if (!feedTimerRunning) return;
+  accumulatedFeedMs += Math.round(performance.now() - startedAt);
+  feedTimerRunning = false;
+}
+
+function resumeFeedTimer() {
+  if (feedTimerRunning) return;
+  startedAt = performance.now();
+  feedTimerRunning = true;
+}
 
 function nowMs() {
-  return Math.round(performance.now() - startedAt);
+  return accumulatedFeedMs + (feedTimerRunning ? Math.round(performance.now() - startedAt) : 0);
 }
 
 function logEvent(type, detail = {}) {
@@ -239,7 +259,7 @@ function metricsHTML() {
 }
 
 function startFeed() {
-  startedAt = performance.now();
+  resetFeedTimer();
   startEpoch = Date.now();
   events = [];
   target.innerHTML = feedHTML(feed);
@@ -297,6 +317,8 @@ function startFeed() {
     unmuted: false,
     capTimer: null,
     visualTimer: null,
+    visualApplied: false,
+    timeCapPrompted: false,
     finished: false,
   };
 
@@ -307,18 +329,65 @@ function startFeed() {
 
   const activeVideo = () => videos[state.index];
 
+  function clearPendingTimers() {
+    if (state.capTimer) window.clearTimeout(state.capTimer);
+    if (state.visualTimer) window.clearTimeout(state.visualTimer);
+    state.capTimer = null;
+    state.visualTimer = null;
+  }
+
+  function pauseViewingForOverlay() {
+    if (state.enterAt !== null) {
+      state.dwellMs[state.index] += Math.round(performance.now() - state.enterAt);
+      state.enterAt = null;
+    }
+    if (state.speedZone) {
+      state.speedTotalMs += Math.round(performance.now() - state.speedStartAt);
+      state.speedZone = null;
+      state.speedStartAt = null;
+    }
+    pauseFeedTimer();
+    clearPendingTimers();
+    const video = activeVideo();
+    if (video) video.pause();
+    speedBanner.classList.remove('is-on');
+  }
+
+  function resumeViewingAfterOverlay() {
+    if (state.finished) return;
+    state.enterAt = performance.now();
+    resumeFeedTimer();
+    scheduleCapTimer();
+    scheduleVisualTreatment();
+    playActive();
+  }
+
   function applyVisualTreatment() {
+    state.visualApplied = true;
     const saturation = Number(condition.visualTreatment.saturationPercent || 100) / 100;
     feedVisual.style.setProperty('--feed-saturation', String(saturation));
     feedVisual.style.setProperty('--feed-brightness', saturation < 1 ? '0.92' : '1');
     logEvent('visual-treatment-applied', { target: 'feed', value: String(condition.visualTreatment.saturationPercent) });
   }
 
+  function scheduleCapTimer() {
+    if (state.finished || state.capTimer || state.timeCapPrompted || TIME_CAP_MS <= 0) return;
+    const delay = Math.max(0, TIME_CAP_MS - nowMs());
+    state.capTimer = window.setTimeout(() => {
+      state.capTimer = null;
+      openExit(null, 'time_cap');
+    }, delay);
+  }
+
   function scheduleVisualTreatment() {
+    if (state.finished || state.visualTimer || state.visualApplied) return;
     if (!condition.visualTreatment.grayscale && condition.visualTreatment.saturationPercent >= 100) return;
-    const delay = Math.max(0, Number(condition.visualTreatment.applyAtSec || 0) * 1000);
+    const delay = Math.max(0, Number(condition.visualTreatment.applyAtSec || 0) * 1000 - nowMs());
     if (delay === 0) applyVisualTreatment();
-    else state.visualTimer = window.setTimeout(applyVisualTreatment, delay);
+    else state.visualTimer = window.setTimeout(() => {
+      state.visualTimer = null;
+      applyVisualTreatment();
+    }, delay);
   }
 
   function ensureVideoLoaded(index, preload = 'metadata') {
@@ -589,10 +658,10 @@ function startFeed() {
     `;
 
     exitCard.querySelector('#confirmExitBtn').addEventListener('click', () => {
-      state.timeCapChoice = state.exitReason === 'time_cap' ? 'confirm_exit_button' : state.timeCapChoice;
+      const fromTimeCap = state.exitReason === 'time_cap';
+      if (fromTimeCap) state.timeCapChoice = 'confirm_exit_button';
       logEvent('exit-confirm', { target: 'confirm_exit_button', value: feed[state.index].sample_id });
-      showQuestionnaireReminder('finish');
-      renderDebug('exit_posttest');
+      void finish(fromTimeCap ? 'time_cap_confirm_exit' : 'confirm_exit_button');
     });
     const cancelBtn = exitCard.querySelector('#cancelExitBtn');
     const continueSlider = exitCard.querySelector('#continueSlider');
@@ -697,8 +766,6 @@ function startFeed() {
   }
 
   function renderBlockingNotice() {
-    const video = activeVideo();
-    if (video) video.pause();
     exitCard.innerHTML = `
       <h2>还未完成实验</h2>
       <p>实验还未结束，请耐心再刷一会儿视频。</p>
@@ -707,35 +774,23 @@ function startFeed() {
     exitLayer.classList.add('is-open');
     document.getElementById('blockingOkBtn').addEventListener('click', () => {
       exitLayer.classList.remove('is-open');
-      playActive();
+      resumeViewingAfterOverlay();
       renderDebug('exit_blocked_dismissed');
     });
   }
 
-  function showQuestionnaireReminder(mode = 'resume') {
-    const isFinal = mode === 'finish';
-    const actionText = isFinal ? '查看完成码' : '继续观看';
-    const buttonText = isFinal ? '完成后查看完成码' : '完成后继续观看';
-    const video = activeVideo();
-    if (video) video.pause();
+  function showQuestionnaireReminder() {
     exitCard.innerHTML = `
       <h2>观看提示</h2>
-      <p>感谢观看视频，您现在需要去见数继续完成问卷。完成后返回本页面，点击下方按钮${actionText}。</p>
-      <button type="button" class="card-btn card-btn--primary" id="questionnaireDoneBtn"><span>${buttonText}</span></button>
+      <p>感谢观看视频，您现在需要去见数继续完成问卷。完成后返回本页面，点击下方按钮继续观看。</p>
+      <button type="button" class="card-btn card-btn--primary" id="questionnaireDoneBtn"><span>完成后继续观看</span></button>
     `;
     exitLayer.classList.add('is-open');
-    document.getElementById('questionnaireDoneBtn').addEventListener('click', async () => {
+    document.getElementById('questionnaireDoneBtn').addEventListener('click', () => {
       exitLayer.classList.remove('is-open');
       state.exitPromptShownAt = null;
       state.exitReason = null;
-      if (isFinal) {
-        const finishMethod = state.timeCapChoice
-          ? 'time_cap_posttest_done'
-          : 'confirm_exit_posttest_done';
-        await finish(finishMethod);
-        return;
-      }
-      playActive();
+      resumeViewingAfterOverlay();
       renderDebug('resume_after_questionnaire');
     });
   }
@@ -749,15 +804,16 @@ function startFeed() {
         y: e ? Math.round(e.clientY) : null,
         value: feed[state.index].sample_id,
       });
+      pauseViewingForOverlay();
       renderBlockingNotice();
       return;
     }
     state.exitOpened += 1;
+    if (reason === 'time_cap') state.timeCapPrompted = true;
     state.exitPromptShownAt = performance.now();
     state.exitReason = reason;
     if (state.firstExitAttemptMs === null) state.firstExitAttemptMs = nowMs();
-    const video = activeVideo();
-    if (video) video.pause();
+    pauseViewingForOverlay();
     renderExitCard();
     exitLayer.classList.add('is-open');
     logEvent('exit-prompt-open', { target: reason === 'time_cap' ? 'time_cap' : 'exit_button', x: e ? Math.round(e.clientX) : null, y: e ? Math.round(e.clientY) : null, value: feed[state.index].sample_id });
@@ -773,22 +829,27 @@ function startFeed() {
     if (exitReason === 'time_cap') {
       state.timeCapChoice = 'cancel_exit_button';
       logEvent('time-cap-choice', { target: 'cancel_exit_button', value: feed[state.index].sample_id });
-      showQuestionnaireReminder('finish');
-      renderDebug('time_cap_posttest');
-      return;
     }
     showQuestionnaireReminder('resume');
-    renderDebug('questionnaire_reminder');
+    renderDebug(exitReason === 'time_cap' ? 'time_cap_resume_posttest' : 'questionnaire_reminder');
   }
 
   async function finish(method) {
     if (state.finished) return;
     state.finished = true;
-    if (state.capTimer) window.clearTimeout(state.capTimer);
-    if (state.visualTimer) window.clearTimeout(state.visualTimer);
-    state.dwellMs[state.index] += Math.round(performance.now() - state.enterAt);
-    if (state.speedZone) state.speedTotalMs += Math.round(performance.now() - state.speedStartAt);
+    clearPendingTimers();
+    if (state.enterAt !== null) {
+      state.dwellMs[state.index] += Math.round(performance.now() - state.enterAt);
+      state.enterAt = null;
+    }
+    if (state.speedZone) {
+      state.speedTotalMs += Math.round(performance.now() - state.speedStartAt);
+      state.speedZone = null;
+      state.speedStartAt = null;
+    }
+    pauseFeedTimer();
     videos.forEach((v) => v.pause());
+    speedBanner.classList.remove('is-on');
     const decisionLatency = state.exitPromptShownAt ? Math.round(performance.now() - state.exitPromptShownAt) : null;
     const exitEpochMs = Date.now();
     const totalFeedMs = nowMs();
@@ -883,7 +944,7 @@ function startFeed() {
   }
 
   exitBtn.addEventListener('click', openExit);
-  if (TIME_CAP_MS > 0) state.capTimer = window.setTimeout(() => { openExit(null, 'time_cap'); }, TIME_CAP_MS);
+  scheduleCapTimer();
   scheduleVisualTreatment();
   renderOverlay();
   playActive();
@@ -896,7 +957,7 @@ function startFeed() {
 function showOutro(summary, completionCode) {
   renderPlainStage(`
     <h1>感谢观看视频</h1>
-    <p>您现在需要去见数继续完成问卷。完成后返回本页面，复制下方完成码并填写。</p>
+    <p>请复制下方完成码，返回见数继续完成问卷并填写。</p>
     <div class="completion-code-box">
       <span class="completion-code-label">完成码</span>
       <strong id="completionCodeText">${escapeHtml(completionCode || '')}</strong>
