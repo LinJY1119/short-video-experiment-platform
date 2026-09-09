@@ -76,6 +76,11 @@
     return Number.isFinite(parsedValue) ? parsedValue : null;
   }
 
+  function normalizePgTimestamp(value) {
+    const timestamp = normalizeTimestamp(value);
+    return timestamp == null ? null : new Date(timestamp).toISOString();
+  }
+
   function normalizeNumber(value) {
     if (value == null || value === '') return null;
     const next = Number(value);
@@ -180,16 +185,16 @@
               entry_url: valueOf(input, 'entryUrl', 'entry_url') ?? null,
               return_url: valueOf(input, 'returnUrl', 'return_url') ?? null,
               status: valueOf(input, 'status') ?? null,
-              started_at: normalizeTimestamp(valueOf(input, 'startedAt', 'started_at') ?? valueOf(existing || {}, 'startedAt', 'started_at')),
-              pre_questionnaire_submitted_at: normalizeTimestamp(valueOf(input, 'preQuestionnaireSubmittedAt', 'pre_questionnaire_submitted_at') ?? valueOf(existing || {}, 'preQuestionnaireSubmittedAt', 'pre_questionnaire_submitted_at')),
-              feed_started_at: normalizeTimestamp(valueOf(input, 'feedStartedAt', 'feed_started_at') ?? valueOf(existing || {}, 'feedStartedAt', 'feed_started_at')),
-              completed_at: normalizeTimestamp(valueOf(input, 'completedAt', 'completed_at') ?? valueOf(existing || {}, 'completedAt', 'completed_at')),
+              started_at: normalizePgTimestamp(valueOf(input, 'startedAt', 'started_at') ?? valueOf(existing || {}, 'startedAt', 'started_at')),
+              pre_questionnaire_submitted_at: normalizePgTimestamp(valueOf(input, 'preQuestionnaireSubmittedAt', 'pre_questionnaire_submitted_at') ?? valueOf(existing || {}, 'preQuestionnaireSubmittedAt', 'pre_questionnaire_submitted_at')),
+              feed_started_at: normalizePgTimestamp(valueOf(input, 'feedStartedAt', 'feed_started_at') ?? valueOf(existing || {}, 'feedStartedAt', 'feed_started_at')),
+              completed_at: normalizePgTimestamp(valueOf(input, 'completedAt', 'completed_at') ?? valueOf(existing || {}, 'completedAt', 'completed_at')),
               user_agent: valueOf(input, 'userAgent', 'user_agent') ?? null,
               screen: normalizeObject(valueOf(input, 'screen')),
               selected_categories: normalizeArray(valueOf(input, 'selectedCategories', 'selected_categories')),
               completion_code: valueOf(input, 'completionCode', 'completion_code') ?? null,
-              created_at: normalizeTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
-              updated_at: normalizeTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
+              created_at: normalizePgTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
+              updated_at: normalizePgTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
             });
           },
           fromRow(row) {
@@ -250,9 +255,9 @@
               selected_category_labels: normalizeArray(valueOf(input, 'selectedCategoryLabels', 'selected_category_labels')),
               min_selected: normalizeNumber(valueOf(input, 'minSelected', 'min_selected')),
               max_selected: normalizeNumber(valueOf(input, 'maxSelected', 'max_selected')),
-              submitted_at: normalizeTimestamp(valueOf(input, 'submittedAt', 'submitted_at') ?? valueOf(existing || {}, 'submittedAt', 'submitted_at') ?? now),
-              created_at: normalizeTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
-              updated_at: normalizeTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
+              submitted_at: normalizePgTimestamp(valueOf(input, 'submittedAt', 'submitted_at') ?? valueOf(existing || {}, 'submittedAt', 'submitted_at') ?? now),
+              created_at: normalizePgTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
+              updated_at: normalizePgTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
             });
           },
           fromRow(row) {
@@ -302,8 +307,8 @@
               recommendation_rule: normalizeObject(valueOf(input, 'recommendationRule', 'recommendation_rule')),
               video_sequence: normalizeArray(valueOf(input, 'videoSequence', 'video_sequence')),
               preference_match_ratio: normalizeNumber(valueOf(input, 'preferenceMatchRatio', 'preference_match_ratio')),
-              created_at: normalizeTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
-              updated_at: normalizeTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
+              created_at: normalizePgTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
+              updated_at: normalizePgTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
             });
           },
           fromRow(row) {
@@ -372,8 +377,8 @@
               watch_ms_after_first_exit_attempt: normalizeTimestamp(valueOf(input, 'watchMsAfterFirstExitAttempt', 'watch_ms_after_first_exit_attempt')),
               dwell_ms_per_slide: valueOf(input, 'dwellMsPerSlide', 'dwell_ms_per_slide') ?? null,
               event_count: normalizeNumber(valueOf(input, 'eventCount', 'event_count')),
-              created_at: normalizeTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
-              updated_at: normalizeTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
+              created_at: normalizePgTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
+              updated_at: normalizePgTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
             });
           },
           fromRow(row) {
@@ -440,8 +445,8 @@
               condition: valueOf(input, 'condition') ?? null,
               chunk_index: normalizeNumber(valueOf(input, 'chunkIndex', 'chunk_index')),
               events: normalizeArray(valueOf(input, 'events')),
-              created_at: normalizeTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
-              updated_at: normalizeTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
+              created_at: normalizePgTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
+              updated_at: normalizePgTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
             });
           },
           fromRow(row) {
@@ -487,9 +492,9 @@
               completed: normalizeBoolean(valueOf(input, 'completed')),
               completion_code: valueOf(input, 'completionCode', 'completion_code') ?? null,
               return_url: valueOf(input, 'returnUrl', 'return_url') ?? null,
-              redirected_at: normalizeTimestamp(valueOf(input, 'redirectedAt', 'redirected_at')),
-              created_at: normalizeTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
-              updated_at: normalizeTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
+              redirected_at: normalizePgTimestamp(valueOf(input, 'redirectedAt', 'redirected_at')),
+              created_at: normalizePgTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
+              updated_at: normalizePgTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
             });
           },
           fromRow(row) {
@@ -556,8 +561,8 @@
               mode: valueOf(input, 'mode') ?? null,
               source: valueOf(input, 'source') ?? null,
               payload: normalizeObject(valueOf(input, 'payload')),
-              created_at: normalizeTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
-              updated_at: normalizeTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
+              created_at: normalizePgTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
+              updated_at: normalizePgTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
             });
           },
           fromRow(row) {
@@ -711,7 +716,7 @@
   }
 
   function prepareUpdatePayload(name, row) {
-    const payload = { ...row, updated_at: Date.now() };
+    const payload = { ...row, updated_at: new Date().toISOString() };
     delete payload.id;
     delete payload.created_at;
     return compactObject(payload);
