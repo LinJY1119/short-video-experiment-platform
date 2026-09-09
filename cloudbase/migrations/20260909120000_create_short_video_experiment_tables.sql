@@ -129,37 +129,31 @@ CREATE INDEX IF NOT EXISTS idx_participant_sessions_study ON public.participant_
 CREATE INDEX IF NOT EXISTS idx_participant_sessions_condition ON public.participant_sessions (condition);
 CREATE INDEX IF NOT EXISTS idx_participant_sessions_created_at ON public.participant_sessions (created_at);
 CREATE INDEX IF NOT EXISTS idx_participant_sessions_updated_at ON public.participant_sessions (updated_at);
-
 CREATE INDEX IF NOT EXISTS idx_preference_responses_session_id ON public.preference_responses (session_id);
 CREATE INDEX IF NOT EXISTS idx_preference_responses_study ON public.preference_responses (study);
 CREATE INDEX IF NOT EXISTS idx_preference_responses_condition ON public.preference_responses (condition);
 CREATE INDEX IF NOT EXISTS idx_preference_responses_created_at ON public.preference_responses (created_at);
 CREATE INDEX IF NOT EXISTS idx_preference_responses_updated_at ON public.preference_responses (updated_at);
-
 CREATE INDEX IF NOT EXISTS idx_assigned_feeds_session_id ON public.assigned_feeds (session_id);
 CREATE INDEX IF NOT EXISTS idx_assigned_feeds_study ON public.assigned_feeds (study);
 CREATE INDEX IF NOT EXISTS idx_assigned_feeds_condition ON public.assigned_feeds (condition);
 CREATE INDEX IF NOT EXISTS idx_assigned_feeds_created_at ON public.assigned_feeds (created_at);
 CREATE INDEX IF NOT EXISTS idx_assigned_feeds_updated_at ON public.assigned_feeds (updated_at);
-
 CREATE INDEX IF NOT EXISTS idx_feed_summaries_session_id ON public.feed_summaries (session_id);
 CREATE INDEX IF NOT EXISTS idx_feed_summaries_study ON public.feed_summaries (study);
 CREATE INDEX IF NOT EXISTS idx_feed_summaries_condition ON public.feed_summaries (condition);
 CREATE INDEX IF NOT EXISTS idx_feed_summaries_created_at ON public.feed_summaries (created_at);
 CREATE INDEX IF NOT EXISTS idx_feed_summaries_updated_at ON public.feed_summaries (updated_at);
-
 CREATE INDEX IF NOT EXISTS idx_feed_events_session_id ON public.feed_events (session_id);
 CREATE INDEX IF NOT EXISTS idx_feed_events_study ON public.feed_events (study);
 CREATE INDEX IF NOT EXISTS idx_feed_events_condition ON public.feed_events (condition);
 CREATE INDEX IF NOT EXISTS idx_feed_events_created_at ON public.feed_events (created_at);
 CREATE INDEX IF NOT EXISTS idx_feed_events_updated_at ON public.feed_events (updated_at);
-
 CREATE INDEX IF NOT EXISTS idx_completion_records_session_id ON public.completion_records (session_id);
 CREATE INDEX IF NOT EXISTS idx_completion_records_study ON public.completion_records (study);
 CREATE INDEX IF NOT EXISTS idx_completion_records_condition ON public.completion_records (condition);
 CREATE INDEX IF NOT EXISTS idx_completion_records_created_at ON public.completion_records (created_at);
 CREATE INDEX IF NOT EXISTS idx_completion_records_updated_at ON public.completion_records (updated_at);
-
 CREATE INDEX IF NOT EXISTS idx_audit_logs_session_id ON public.audit_logs (session_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_study ON public.audit_logs (study);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_condition ON public.audit_logs (condition);
@@ -174,7 +168,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.feed_summaries TO anon, authentic
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.feed_events TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.completion_records TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.audit_logs TO anon, authenticated;
-
 GRANT ALL PRIVILEGES ON public.participant_sessions TO service_role;
 GRANT ALL PRIVILEGES ON public.preference_responses TO service_role;
 GRANT ALL PRIVILEGES ON public.assigned_feeds TO service_role;
@@ -192,43 +185,16 @@ ALTER TABLE public.completion_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS participant_sessions_all ON public.participant_sessions;
-CREATE POLICY participant_sessions_all ON public.participant_sessions
-  FOR ALL TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
-
+CREATE POLICY participant_sessions_all ON public.participant_sessions FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS preference_responses_all ON public.preference_responses;
-CREATE POLICY preference_responses_all ON public.preference_responses
-  FOR ALL TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
-
+CREATE POLICY preference_responses_all ON public.preference_responses FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS assigned_feeds_all ON public.assigned_feeds;
-CREATE POLICY assigned_feeds_all ON public.assigned_feeds
-  FOR ALL TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
-
+CREATE POLICY assigned_feeds_all ON public.assigned_feeds FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS feed_summaries_all ON public.feed_summaries;
-CREATE POLICY feed_summaries_all ON public.feed_summaries
-  FOR ALL TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
-
+CREATE POLICY feed_summaries_all ON public.feed_summaries FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS feed_events_all ON public.feed_events;
-CREATE POLICY feed_events_all ON public.feed_events
-  FOR ALL TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
-
+CREATE POLICY feed_events_all ON public.feed_events FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS completion_records_all ON public.completion_records;
-CREATE POLICY completion_records_all ON public.completion_records
-  FOR ALL TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
-
+CREATE POLICY completion_records_all ON public.completion_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS audit_logs_all ON public.audit_logs;
-CREATE POLICY audit_logs_all ON public.audit_logs
-  FOR ALL TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
+CREATE POLICY audit_logs_all ON public.audit_logs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);

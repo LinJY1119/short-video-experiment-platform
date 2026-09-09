@@ -711,7 +711,7 @@
   }
 
   function prepareUpdatePayload(name, row) {
-    const payload = { ...row, updated_at: new Date().toISOString() };
+    const payload = { ...row, updated_at: Date.now() };
     delete payload.id;
     delete payload.created_at;
     return compactObject(payload);
