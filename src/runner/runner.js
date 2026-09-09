@@ -40,6 +40,12 @@ const feed = storedFeed
     });
 
 const TIME_CAP_MS = Number(params.get('cap') || condition?.browsing?.maxDurationSec || 0) * 1000;
+const EXIT_LOCKED_STUDIES = new Set(['1a', '1b', '2a']);
+const EXIT_UNLOCK_MS = EXIT_LOCKED_STUDIES.has(condition?.study)
+  ? TIME_CAP_MS
+  : condition?.study === '2b'
+    ? Number(condition.visualTreatment?.applyAtSec || 0) * 1000
+    : 0;
 
 const ICONS = {
   heart: '<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 42.7l-2.6-2.3C11.5 31.6 5 25.7 5 18.5 5 12.7 9.6 8 15.4 8c3.3 0 6.4 1.5 8.6 4 2.2-2.5 5.3-4 8.6-4C38.4 8 43 12.7 43 18.5c0 7.2-6.5 13.1-16.4 21.9L24 42.7z"/></svg>',
@@ -135,7 +141,7 @@ function showIntro() {
       <li>在屏幕中间<strong>上滑</strong>切换到下一条，<strong>下滑</strong>回到上一条。</li>
       <li>按住屏幕<strong>左侧或右侧边缘</strong>为 2 倍速播放，松开恢复正常速度。</li>
       <li>轻点屏幕中间可开启或关闭声音。</li>
-      <li>如需退出，页面会先提示你返回见数继续完成问卷；完成后可按按钮继续观看或查看完成码。</li>
+      <li>请持续浏览视频，达到规定时间后页面会显示下一步提示。</li>
     </ul>
     <p>请按自己平时的习惯自由浏览。</p>
     <div class="stage-actions"><button type="button" class="runner-btn" id="startFeedBtn">开始浏览</button></div>
@@ -583,16 +589,10 @@ function startFeed() {
     `;
 
     exitCard.querySelector('#confirmExitBtn').addEventListener('click', () => {
-      if (state.exitReason === 'time_cap') {
-        state.timeCapChoice = 'confirm_exit_button';
-        logEvent('time-cap-choice', { target: 'confirm_exit_button', value: feed[state.index].sample_id });
-        state.exitPromptShownAt = null;
-        state.exitReason = null;
-        showQuestionnaireReminder('finish');
-        renderDebug('time_cap_posttest');
-        return;
-      }
-      void finish('confirm_exit_button');
+      state.timeCapChoice = state.exitReason === 'time_cap' ? 'confirm_exit_button' : state.timeCapChoice;
+      logEvent('exit-confirm', { target: 'confirm_exit_button', value: feed[state.index].sample_id });
+      showQuestionnaireReminder('finish');
+      renderDebug('exit_posttest');
     });
     const cancelBtn = exitCard.querySelector('#cancelExitBtn');
     const continueSlider = exitCard.querySelector('#continueSlider');
@@ -601,12 +601,107 @@ function startFeed() {
     else if (cancelBtn) cancelBtn.addEventListener('click', cancelExit);
   }
 
+  function bindHoldContinue(cancelBtn) {
+    const required = condition.holdConfig?.requiredMs || 1500;
+    const fill = cancelBtn.querySelector('#holdProgress');
+    let start = null;
+    let raf = null;
+
+    function clearHold() {
+      start = null;
+      if (raf) cancelAnimationFrame(raf);
+      raf = null;
+      if (fill) fill.style.width = '0%';
+    }
+
+    function tick() {
+      if (start === null) return;
+      const elapsed = performance.now() - start;
+      if (fill) fill.style.width = `${Math.min(100, (elapsed / required) * 100)}%`;
+      if (elapsed >= required) {
+        clearHold();
+        cancelExit('hold_to_continue');
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    }
+
+    cancelBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      start = performance.now();
+      logEvent('hold-continue-start', { target: 'cancel_exit_button', x: Math.round(e.clientX), y: Math.round(e.clientY) });
+      tick();
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((evt) => cancelBtn.addEventListener(evt, () => {
+      if (start !== null) logEvent('hold-continue-cancelled', { target: 'cancel_exit_button', duration: Math.round(performance.now() - start) });
+      clearHold();
+    }));
+  }
+
+  function bindSwipeContinue(container) {
+    const track = container.querySelector('#continueSliderTrack');
+    const fill = container.querySelector('#continueSliderFill');
+    const thumb = container.querySelector('#continueSliderThumb');
+    const threshold = 0.82;
+    let activePointerId = null;
+    let progress = 0;
+
+    function updateSlider(nextProgress) {
+      progress = Math.max(0, Math.min(1, nextProgress));
+      const percent = progress * 100;
+      if (fill) fill.style.width = `${percent}%`;
+      if (thumb) thumb.style.left = `calc(${percent}% - ${thumb.offsetWidth / 2}px)`;
+      if (track) track.dataset.progress = String(progress);
+    }
+
+    function resetSlider() {
+      updateSlider(0);
+    }
+
+    function completeSlider() {
+      updateSlider(1);
+      cancelExit('swipe_to_continue');
+      window.setTimeout(resetSlider, 120);
+    }
+
+    function startDrag(event) {
+      event.preventDefault();
+      if (activePointerId !== null) return;
+      activePointerId = event.pointerId;
+      track?.setPointerCapture?.(event.pointerId);
+      logEvent('swipe-continue-start', { target: 'continue_slider', x: Math.round(event.clientX), y: Math.round(event.clientY) });
+      moveDrag(event);
+    }
+
+    function moveDrag(event) {
+      if (activePointerId !== event.pointerId || !track) return;
+      const rect = track.getBoundingClientRect();
+      const nextProgress = (event.clientX - rect.left) / rect.width;
+      updateSlider(nextProgress);
+    }
+
+    function endDrag(event) {
+      if (activePointerId !== event.pointerId) return;
+      const finalProgress = progress;
+      logEvent('swipe-continue-end', { target: 'continue_slider', x: Math.round(event.clientX), y: Math.round(event.clientY), value: finalProgress });
+      activePointerId = null;
+      if (finalProgress >= threshold) completeSlider();
+      else resetSlider();
+    }
+
+    resetSlider();
+    track?.addEventListener('pointerdown', startDrag);
+    track?.addEventListener('pointermove', moveDrag);
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((evt) => track?.addEventListener(evt, endDrag));
+    thumb?.addEventListener('pointerdown', startDrag);
+  }
+
   function renderBlockingNotice() {
     const video = activeVideo();
     if (video) video.pause();
     exitCard.innerHTML = `
       <h2>还未完成实验</h2>
-      <p>还未完成实验，再耐心刷一会儿。</p>
+      <p>实验还未结束，请耐心再刷一会儿视频。</p>
       <button type="button" class="card-btn card-btn--primary" id="blockingOkBtn"><span>继续刷视频</span></button>
     `;
     exitLayer.classList.add('is-open');
@@ -618,13 +713,14 @@ function startFeed() {
   }
 
   function showQuestionnaireReminder(mode = 'resume') {
-    const buttonText = mode === 'finish' ? '我已完成，查看完成码' : '我已完成，继续观看';
-    const buttonAction = mode === 'finish' ? '查看完成码' : '继续观看';
+    const isFinal = mode === 'finish';
+    const actionText = isFinal ? '查看完成码' : '继续观看';
+    const buttonText = isFinal ? '完成后查看完成码' : '完成后继续观看';
     const video = activeVideo();
     if (video) video.pause();
     exitCard.innerHTML = `
       <h2>观看提示</h2>
-      <p>感谢观看视频，您现在需要去见数继续完成问卷。完成后点击下方按钮${buttonAction}。</p>
+      <p>感谢观看视频，您现在需要去见数继续完成问卷。完成后返回本页面，点击下方按钮${actionText}。</p>
       <button type="button" class="card-btn card-btn--primary" id="questionnaireDoneBtn"><span>${buttonText}</span></button>
     `;
     exitLayer.classList.add('is-open');
@@ -632,8 +728,11 @@ function startFeed() {
       exitLayer.classList.remove('is-open');
       state.exitPromptShownAt = null;
       state.exitReason = null;
-      if (mode === 'finish') {
-        await finish('time_cap_posttest_done');
+      if (isFinal) {
+        const finishMethod = state.timeCapChoice
+          ? 'time_cap_posttest_done'
+          : 'confirm_exit_posttest_done';
+        await finish(finishMethod);
         return;
       }
       playActive();
@@ -643,11 +742,13 @@ function startFeed() {
 
   function openExit(e, reason = 'manual') {
     if (exitLayer.classList.contains('is-open')) return;
-    const unlockAtMs = condition.study === '2b'
-      ? Number(condition.visualTreatment.applyAtSec || 0) * 1000
-      : 0;
-    if (unlockAtMs > 0 && nowMs() < unlockAtMs) {
-      logEvent('exit-blocked', { target: 'exit_button', x: e ? Math.round(e.clientX) : null, y: e ? Math.round(e.clientY) : null, value: feed[state.index].sample_id });
+    if (EXIT_UNLOCK_MS > 0 && nowMs() < EXIT_UNLOCK_MS) {
+      logEvent('exit-blocked', {
+        target: reason === 'time_cap' ? 'time_cap' : 'exit_button',
+        x: e ? Math.round(e.clientX) : null,
+        y: e ? Math.round(e.clientY) : null,
+        value: feed[state.index].sample_id,
+      });
       renderBlockingNotice();
       return;
     }
@@ -774,8 +875,6 @@ function startFeed() {
     debugBox.textContent = [
       `action: ${action}`,
       `condition: ${condition.study}/${condition.condition}`,
-      `index: ${state.index + 1}/${feed.length}  ${feed[state.index].sample_id}`,
-      `elapsed: ${nowMs()} ms`,
       `swipe: ↑${state.swipeNext} ↓${state.swipePrev}`,
       `2x: ${state.speedCount} 次 / ${state.speedTotalMs} ms`,
       `taps: ${state.actionTaps}  like:${state.likes.size} fav:${state.favorites.size}`,
@@ -797,7 +896,7 @@ function startFeed() {
 function showOutro(summary, completionCode) {
   renderPlainStage(`
     <h1>感谢观看视频</h1>
-    <p>您现在需要去见数继续完成问卷。完成后请返回本页面复制下方完成码并填写。</p>
+    <p>您现在需要去见数继续完成问卷。完成后返回本页面，复制下方完成码并填写。</p>
     <div class="completion-code-box">
       <span class="completion-code-label">完成码</span>
       <strong id="completionCodeText">${escapeHtml(completionCode || '')}</strong>
