@@ -65,8 +65,15 @@
 
   function normalizeTimestamp(value) {
     if (value == null || value === '') return null;
-    const next = Number(value);
-    return Number.isFinite(next) ? next : null;
+    if (value instanceof Date) {
+      const dateValue = value.getTime();
+      return Number.isFinite(dateValue) ? dateValue : null;
+    }
+    const textValue = String(value);
+    const numericValue = Number(textValue);
+    if (/^-?\d+(\.\d+)?$/.test(textValue) && Number.isFinite(numericValue)) return numericValue;
+    const parsedValue = Date.parse(textValue);
+    return Number.isFinite(parsedValue) ? parsedValue : null;
   }
 
   function normalizeNumber(value) {
@@ -77,6 +84,7 @@
 
   function normalizeBoolean(value) {
     if (value == null || value === '') return false;
+    if (typeof value === 'string') return value === 'true' || value === '1';
     return Boolean(value);
   }
 
@@ -653,10 +661,10 @@
       if (result && result.error) throw result.error;
       const rows = Array.isArray(result && result.data) ? result.data : [];
       const mapped = rows.map((row) => fromRemoteRow(name, row));
-      mapped.sort((a, b) => normalizeTimestamp(valueOf(b, 'updatedAt', 'updated_at', 'createdAt', 'created_at')) - normalizeTimestamp(valueOf(a, 'updatedAt', 'updated_at', 'createdAt', 'created_at')));
+      mapped.sort((a, b) => (normalizeTimestamp(valueOf(b, 'updatedAt', 'updated_at', 'createdAt', 'created_at')) || 0) - (normalizeTimestamp(valueOf(a, 'updatedAt', 'updated_at', 'createdAt', 'created_at')) || 0));
       return mapped;
     } catch (error) {
-      return null;
+      throw error;
     }
   }
 
@@ -667,10 +675,13 @@
     await initCloudBase();
 
     const entries = await Promise.all(names.map(async (name) => {
-      const remote = await readRemoteCollection(name);
-      if (remote) return [name, remote];
-      const local = collectionLocal(name).list.slice();
-      return [name, local];
+      try {
+        const remote = await readRemoteCollection(name);
+        return [name, remote || collectionLocal(name).list.slice()];
+      } catch (error) {
+        state.lastWriteError = String(error && error.message ? error.message : error);
+        return [name, collectionLocal(name).list.slice()];
+      }
     }));
 
     entries.forEach(([name, list]) => {
@@ -690,7 +701,7 @@
       const rows = Array.isArray(result && result.data) ? result.data : [];
       return rows[0] || null;
     } catch (error) {
-      return null;
+      throw error;
     }
   }
 
@@ -700,7 +711,7 @@
   }
 
   function prepareUpdatePayload(name, row) {
-    const payload = { ...row };
+    const payload = { ...row, updated_at: new Date().toISOString() };
     delete payload.id;
     delete payload.created_at;
     return compactObject(payload);
@@ -721,7 +732,14 @@
     }
 
     try {
-      const existingResult = await getRemoteDoc(name, docId);
+      let existingResult = null;
+      try {
+        existingResult = await getRemoteDoc(name, docId);
+      } catch (error) {
+        state.lastWriteSource = 'local';
+        state.lastWriteError = String(error && error.message ? error.message : error);
+        return upsertLocal(name, input, field);
+      }
       const next = prepareInsertPayload(name, input, existingResult || undefined);
       if (existingResult) {
         const { error } = await db.from(name).update(prepareUpdatePayload(name, next)).eq('id', docId);
@@ -811,12 +829,8 @@
       await Promise.all(rows.map(async (row) => {
         const docId = valueOf(row, 'id');
         if (!docId) return;
-        try {
-          const result = await db.from(name).delete().eq('id', docId);
-          if (result && result.error) throw result.error;
-        } catch (error) {
-          return null;
-        }
+        const result = await db.from(name).delete().eq('id', docId);
+        if (result && result.error) throw result.error;
       }));
       return true;
     } catch (error) {
@@ -832,10 +846,14 @@
     }
 
     try {
-      await Promise.all(DATA_TABLES.map((name) => clearRemoteTable(name)));
+      const results = await Promise.all(DATA_TABLES.map((name) => clearRemoteTable(name)));
+      if (results.some((result) => result === false)) {
+        throw new Error('CloudBase PostgreSQL 清空记录失败');
+      }
       window.localStorage.removeItem(KEY);
     } catch (error) {
-      window.localStorage.removeItem(KEY);
+      state.lastWriteSource = 'cloudbase';
+      state.lastWriteError = String(error && error.message ? error.message : error);
     }
   }
 
@@ -854,11 +872,6 @@
 
   async function exportJson() {
     return JSON.stringify(await readAll(), null, 2);
-  }
-
-  function compareRecordTime(left, right) {
-    return (normalizeTimestamp(valueOf(left, 'updatedAt', 'updated_at', 'createdAt', 'created_at')) || 0) -
-      (normalizeTimestamp(valueOf(right, 'updatedAt', 'updated_at', 'createdAt', 'created_at')) || 0);
   }
 
   async function exportCsv() {
