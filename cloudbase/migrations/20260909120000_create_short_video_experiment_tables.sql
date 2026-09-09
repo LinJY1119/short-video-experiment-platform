@@ -161,6 +161,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON public.audit_logs (creat
 CREATE INDEX IF NOT EXISTS idx_audit_logs_updated_at ON public.audit_logs (updated_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_type ON public.audit_logs (type);
 
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.participant_sessions TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.preference_responses TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.assigned_feeds TO anon, authenticated;
