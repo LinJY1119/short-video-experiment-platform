@@ -185,10 +185,10 @@
               entry_url: valueOf(input, 'entryUrl', 'entry_url') ?? null,
               return_url: valueOf(input, 'returnUrl', 'return_url') ?? null,
               status: valueOf(input, 'status') ?? null,
-              started_at: normalizePgTimestamp(valueOf(input, 'startedAt', 'started_at') ?? valueOf(existing || {}, 'startedAt', 'started_at')),
-              pre_questionnaire_submitted_at: normalizePgTimestamp(valueOf(input, 'preQuestionnaireSubmittedAt', 'pre_questionnaire_submitted_at') ?? valueOf(existing || {}, 'preQuestionnaireSubmittedAt', 'pre_questionnaire_submitted_at')),
-              feed_started_at: normalizePgTimestamp(valueOf(input, 'feedStartedAt', 'feed_started_at') ?? valueOf(existing || {}, 'feedStartedAt', 'feed_started_at')),
-              completed_at: normalizePgTimestamp(valueOf(input, 'completedAt', 'completed_at') ?? valueOf(existing || {}, 'completedAt', 'completed_at')),
+              started_at: normalizeTimestamp(valueOf(input, 'startedAt', 'started_at') ?? valueOf(existing || {}, 'startedAt', 'started_at')),
+              pre_questionnaire_submitted_at: normalizeTimestamp(valueOf(input, 'preQuestionnaireSubmittedAt', 'pre_questionnaire_submitted_at') ?? valueOf(existing || {}, 'preQuestionnaireSubmittedAt', 'pre_questionnaire_submitted_at')),
+              feed_started_at: normalizeTimestamp(valueOf(input, 'feedStartedAt', 'feed_started_at') ?? valueOf(existing || {}, 'feedStartedAt', 'feed_started_at')),
+              completed_at: normalizeTimestamp(valueOf(input, 'completedAt', 'completed_at') ?? valueOf(existing || {}, 'completedAt', 'completed_at')),
               user_agent: valueOf(input, 'userAgent', 'user_agent') ?? null,
               screen: normalizeObject(valueOf(input, 'screen')),
               selected_categories: normalizeArray(valueOf(input, 'selectedCategories', 'selected_categories')),
@@ -492,7 +492,7 @@
               completed: normalizeBoolean(valueOf(input, 'completed')),
               completion_code: valueOf(input, 'completionCode', 'completion_code') ?? null,
               return_url: valueOf(input, 'returnUrl', 'return_url') ?? null,
-              redirected_at: normalizePgTimestamp(valueOf(input, 'redirectedAt', 'redirected_at')),
+              redirected_at: normalizeTimestamp(valueOf(input, 'redirectedAt', 'redirected_at')),
               created_at: normalizePgTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
               updated_at: normalizePgTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
             });
@@ -716,7 +716,7 @@
   }
 
   function prepareUpdatePayload(name, row) {
-    const payload = { ...row, updated_at: new Date().toISOString() };
+    const payload = { ...row, updated_at: Date.now() };
     delete payload.id;
     delete payload.created_at;
     return compactObject(payload);
