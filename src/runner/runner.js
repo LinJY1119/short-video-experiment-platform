@@ -161,7 +161,7 @@ function showIntro() {
       <li>在屏幕中间<strong>上滑</strong>切换到下一条，<strong>下滑</strong>回到上一条。</li>
       <li>按住屏幕<strong>左侧或右侧边缘</strong>为 2 倍速播放，松开恢复正常速度。</li>
       <li>轻点屏幕中间可开启或关闭声音。</li>
-      <li>请持续浏览视频，达到规定时间后页面会显示下一步提示。</li>
+      <li>请持续浏览视频，达到规定时间后页面会显示下一步提示；未到时间时如选择继续观看，将直接返回视频流。</li>
     </ul>
     <p>请按自己平时的习惯自由浏览。</p>
     <div class="stage-actions"><button type="button" class="runner-btn" id="startFeedBtn">开始浏览</button></div>
@@ -855,9 +855,13 @@ function startFeed() {
     if (exitReason === 'time_cap') {
       state.timeCapChoice = 'cancel_exit_button';
       logEvent('time-cap-choice', { target: 'cancel_exit_button', value: feed[state.index].sample_id });
+      showQuestionnaireReminder();
+      renderDebug('time_cap_resume_posttest');
+      return;
     }
-    showQuestionnaireReminder('resume');
-    renderDebug(exitReason === 'time_cap' ? 'time_cap_resume_posttest' : 'questionnaire_reminder');
+    exitLayer.classList.remove('is-open');
+    resumeViewingAfterOverlay();
+    renderDebug('resume_after_manual_exit_cancel');
   }
 
   async function finish(method) {
