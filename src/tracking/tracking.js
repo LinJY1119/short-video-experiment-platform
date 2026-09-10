@@ -66,8 +66,7 @@
     const study = text(params?.get('study')).toLowerCase();
     const condition = text(params?.get('condition') || 'g1').toLowerCase();
     return params?.get('tracking') === '1'
-      || study === '3'
-      || (study === '1a' && condition === 'g1');
+      || study === '3';
   }
 
   function escapeHtml(value) {
