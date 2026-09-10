@@ -172,6 +172,17 @@ cloudbase/migrations/20260909220000_add_feed_exit_epoch_ms.sql
 - `created_at timestamptz`
 - `updated_at timestamptz`
 
+## 研究 3 追踪表
+
+`cloudbase/migrations/20260910100000_create_tracking_tables.sql` 新增以下 4 张表，用于把同一被试的 10 天追踪记录与单次浏览 session 分开保存：
+
+- `tracking_participants`：按姓名 + 自设追踪编号 + 条件建立追踪档案；正式分析应使用 `id` 作为被试标识。
+- `tracking_runs`：每天 4 个目标时段（10:00、14:00、18:00、21:00）各一条任务记录，保存追踪日、目标日期、补做标记和单次任务完成码。
+- `tracking_questionnaires`：第 1、5、10 天由见数外部量表回收后，管理员手动登记完成状态、量表版本和见数记录编号；不存逐题答案。
+- `tracking_followups`：保存连续两日无数据或单日不足 4 次时生成的人工提醒文案、跟进状态和备注。
+
+当天可补做未完成时段；`tracking_runs` 的 `(participant_id, target_date, session_slot)` 唯一约束防止同一时段重复计数。当前静态网页不承担被试离线后的自动消息推送。
+
 ## 索引建议
 
 至少为这些常用查询字段建索引：

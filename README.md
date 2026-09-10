@@ -7,7 +7,7 @@
 - 系统按 70% 偏好类别 + 30% 非偏好类别生成推荐序列。
 - 刷视频界面复用 `credamo-jspsych-demo` 的抖音式手机壳 UI 与交互，但当前实现已改为纯前端 JavaScript，不再依赖短视频运行器或 Credamo。
 - 数据层已经切换为 CloudBase PostgreSQL；浏览器端仍保留 `localStorage` 作为兜底，但正式实验数据应写入 PG。
-- 当前不包含 Credamo / 见数专用接口，按普通网页部署处理。
+- 研究 3 已提供 10 天追踪入口：每天 4 个时段可从同一入口恢复，量表由见数外部回收并由管理员登记状态；网站不承担离线自动推送。
 
 ## 本地运行
 
@@ -37,6 +37,18 @@ http://localhost:5173/
 ```text
 https://experiment.yourdomain.com/entry.html?study=2a&condition=g7&name=张三&source=wjx&returnUrl=https%3A%2F%2Fquestionnaire.example%2Fnext
 ```
+
+## 研究 3 追踪入口
+
+- 对照组链接：`/entry.html?study=1a&condition=g1`
+- 实验组链接：`/entry.html?study=3&condition=g1`
+- 首次进入填写姓名、设置 4–20 位追踪编号并选择 1–3 类视频；后续每天仍从同一入口填写姓名和编号恢复记录。
+- 每天目标时段为北京时间 10:00、14:00、18:00、21:00；当天可补做，系统保存每次任务的追踪日、时段和迟到标记。
+- 第 1、5、10 天量表由见数外部问卷完成，管理员在后台手动登记状态和见数记录编号。
+- 每次任务显示单次完成码；第 10 天全部任务与量表登记完成后生成最终追踪完成码。
+- 研究 3 实验组配置为 10 分钟、65% 饱和度、观看时长与条数反馈、长按确认退出；达到 10 分钟后只能长按结束，不提供继续观看按钮。
+
+正式使用前请先执行 `cloudbase/migrations/20260910100000_create_tracking_tables.sql`，并确认 CloudBase PostgreSQL 已创建追踪表。
 
 ## CloudBase 接入
 

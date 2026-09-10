@@ -50,6 +50,22 @@
     </section>
 
     <section class="panel">
+      <h2>研究3追踪进度与人工跟进</h2>
+      <p class="muted">量表由见数外部回收；本页仅登记完成状态和见数记录编号。提醒仅生成待跟进名单，不会自动向被试发送消息。</p>
+      <div class="tracking-admin-toolbar">
+        <button class="btn btn--primary" id="refreshTrackingBtn" type="button">刷新追踪数据</button>
+        <button class="btn" id="exportTrackingBtn" type="button">导出追踪 CSV</button>
+        <span class="muted" id="trackingAdminStatus"></span>
+      </div>
+      <div style="overflow:auto;">
+        <table class="admin-table">
+          <thead><tr><th>被试</th><th>条件</th><th>追踪起始</th><th>今日任务</th><th>量表</th><th>异常/操作</th></tr></thead>
+          <tbody id="trackingRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
       <h2>记录概览</h2>
       <pre class="codebox" id="recordsBox"></pre>
     </section>
@@ -71,6 +87,7 @@
   <script src="src/config/videos.js"></script>
   <script src="src/config/conditions.js"></script>
   <script src="src/lib/store.js"></script>
+  <script src="src/tracking/tracking.js"></script>
   <script>
     (async () => {
       await window.ExperimentStore.whenReady;
@@ -79,6 +96,13 @@
       const sessions = records.participant_sessions || [];
       const completions = records.completion_records || [];
       const summaries = records.feed_summaries || [];
+      const trackingParticipants = records.tracking_participants || [];
+      const trackingRuns = records.tracking_runs || [];
+      const trackingQuestionnaires = records.tracking_questionnaires || [];
+      const trackingFollowups = records.tracking_followups || [];
+      const tracking = window.Tracking;
+      const trackingStatus = document.getElementById('trackingAdminStatus');
+      if (trackingStatus) trackingStatus.textContent = `当前 ${trackingParticipants.length} 名研究3追踪被试 · 数据模式：${window.ExperimentStore.getMode()}`;
 
       stats.innerHTML = `
         <div class="stat"><b>${window.EXPERIMENT_CONDITIONS.length}</b><span>实验条件</span></div>
@@ -109,6 +133,172 @@
           <td><a href="${video.video}" target="_blank" rel="noreferrer">${video.video}</a></td>
         </tr>
       `).join('');
+
+      function byParticipant(list, participantId) {
+        return list.filter((item) => String(item.participantId || item.participant_id) === String(participantId));
+      }
+
+      function countCompleteRuns(list, participantId, day) {
+        return byParticipant(list, participantId).filter((item) => Number(item.trackingDay || item.tracking_day) === day && String(item.status).toLowerCase() === 'completed').length;
+      }
+
+      function questionnaireDone(list, participantId, day) {
+        const item = byParticipant(list, participantId).find((row) => Number(row.trackingDay || row.tracking_day) === day);
+        return Boolean(item && (item.completed === true || item.completed === 'true' || item.completed === 1 || item.completed === '1'));
+      }
+
+      function followupFor(participantId, day) {
+        return trackingFollowups.find((item) => String(item.participantId || item.participant_id) === String(participantId) && Number(item.trackingDay || item.tracking_day) === day);
+      }
+
+      function followupMessage(participant, day, reason) {
+        return `您好，${participant.participantName || participant.participant_name}，这是研究团队的使用提醒：请从原入口完成第${day}天尚未完成的短视频任务（${reason}）。如已完成，请忽略本消息。`;
+      }
+
+      function dateForDay(startDate, day) {
+        const value = tracking.dateValue(startDate) + (day - 1) * 86400000;
+        const date = new Date(value);
+        return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+      }
+
+      function renderTrackingRows() {
+        const today = tracking.beijingDateKey();
+        const now = Date.now();
+        const rows = trackingParticipants.map((participant) => {
+          const participantId = participant.id || participant.participantId;
+          const startDate = participant.startDate || participant.start_date;
+          const elapsedDay = Math.max(1, Math.min(tracking.TRACKING_DAYS, tracking.dayNumber(startDate, today)));
+          const day = elapsedDay;
+          const runCounts = Array.from({ length: tracking.TRACKING_DAYS }, (_, index) => countCompleteRuns(trackingRuns, participantId, index + 1));
+          const todayCount = runCounts[day - 1];
+          const dayDate = dateForDay(startDate, day);
+          const dayClosed = dayDate < today || (dayDate === today && now >= tracking.targetEpoch(today, '21:00'));
+          const lowToday = dayClosed && todayCount < tracking.SLOTS.length;
+          const elapsedCounts = runCounts.slice(0, elapsedDay);
+          const consecutiveNoData = elapsedCounts.some((value, index) => index > 0 && value === 0 && elapsedCounts[index - 1] === 0);
+          const flags = [];
+          if (lowToday) flags.push(`今日${todayCount}/4`);
+          if (consecutiveNoData) flags.push('连续两日无数据');
+          const questionnaireStatus = tracking.QUESTIONNAIRE_DAYS.map((qDay) => `D${qDay}:${questionnaireDone(trackingQuestionnaires, participantId, qDay) ? '已' : '待'}`).join(' ');
+          const reason = consecutiveNoData ? '连续两天无数据' : `今日仅完成${todayCount}/4次`;
+          const existingFollowup = followupFor(participantId, day);
+          const questionnaireButtons = tracking.QUESTIONNAIRE_DAYS.map((qDay) => {
+            const done = questionnaireDone(trackingQuestionnaires, participantId, qDay);
+            return `<button class="btn tracking-questionnaire-btn" data-participant="${tracking.escapeHtml(participantId)}" data-day="${qDay}">${done ? `D${qDay}已登记` : `登记D${qDay}`}</button>`;
+          }).join('');
+          return `<tr>
+            <td><strong>${tracking.escapeHtml(participant.participantName || participant.participant_name)}</strong><br><span class="muted">${tracking.escapeHtml(participant.trackingCode || participant.tracking_code)}</span><br><span class="muted">${tracking.escapeHtml(participantId)}</span></td>
+            <td>${tracking.escapeHtml(`${String(participant.study).toUpperCase()}-${String(participant.condition).toUpperCase()}`)}</td>
+            <td>${tracking.escapeHtml(startDate || '')}<br>第${day}天</td>
+            <td>${runCounts.map((value, index) => `D${index + 1}:${value}/4`).join(' · ')}</td>
+            <td>${questionnaireStatus}<div class="tracking-questionnaire-actions">${questionnaireButtons}</div></td>
+            <td>${flags.length ? `<span class="admin-flag">${tracking.escapeHtml(flags.join('；'))}</span>` : '<span class="muted">无</span>'}<br>
+              <button class="btn tracking-followup-btn" data-participant="${tracking.escapeHtml(participantId)}" data-day="${day}" data-reason="${tracking.escapeHtml(reason)}">${existingFollowup ? '已生成提醒' : '生成提醒文案'}</button>
+              ${existingFollowup ? `<small class="muted">${tracking.escapeHtml(existingFollowup.status || 'pending')}</small>` : ''}</td>
+          </tr>`;
+        }).join('');
+        document.getElementById('trackingRows').innerHTML = rows || '<tr><td colspan="6" class="muted">暂无研究3追踪记录。</td></tr>';
+        document.querySelectorAll('.tracking-followup-btn').forEach((button) => button.addEventListener('click', async () => {
+          const participant = trackingParticipants.find((item) => String(item.id || item.participantId) === button.dataset.participant);
+          if (!participant) return;
+          const day = Number(button.dataset.day);
+          const reason = button.dataset.reason;
+          const message = followupMessage(participant, day, reason);
+          await window.ExperimentStore.upsert('tracking_followups', {
+            id: `followup_${button.dataset.participant}_${day}`,
+            participantId: button.dataset.participant,
+            participantName: participant.participantName || participant.participant_name,
+            study: participant.study,
+            condition: participant.condition,
+            trackingDay: day,
+            targetDate: today,
+            reason,
+            message,
+            status: 'pending',
+            notes: '',
+          });
+          try { await navigator.clipboard.writeText(message); } catch (error) { window.prompt('请复制以下提醒文案：', message); }
+          button.textContent = '已复制提醒';
+        }));
+        document.querySelectorAll('.tracking-questionnaire-btn').forEach((button) => button.addEventListener('click', async () => {
+          const participant = trackingParticipants.find((item) => String(item.id || item.participantId) === button.dataset.participant);
+          if (!participant) return;
+          const day = Number(button.dataset.day);
+          const existing = trackingQuestionnaires.find((item) => String(item.participantId || item.participant_id) === button.dataset.participant && Number(item.trackingDay || item.tracking_day) === day);
+          const externalRecordId = window.prompt(`请输入见数第${day}天答卷记录编号（可留空）：`, existing?.externalRecordId || existing?.external_record_id || '');
+          if (externalRecordId === null) return;
+          const questionnaireVersion = window.prompt('请输入量表版本（可留空）：', existing?.questionnaireVersion || existing?.questionnaire_version || '');
+          if (questionnaireVersion === null) return;
+          await window.ExperimentStore.upsert('tracking_questionnaires', {
+            id: existing?.id || `questionnaire_${button.dataset.participant}_${day}`,
+            participantId: button.dataset.participant,
+            participantName: participant.participantName || participant.participant_name,
+            study: participant.study,
+            condition: participant.condition,
+            trackingDay: day,
+            completed: true,
+            questionnaireVersion,
+            externalRecordId,
+            completedAt: existing?.completedAt || existing?.completed_at || Date.now(),
+            registeredAt: Date.now(),
+            notes: '',
+          });
+          const refreshed = await window.ExperimentStore.readAll();
+          const latestParticipant = (refreshed.tracking_participants || []).find((item) => String(item.id || item.participantId) === button.dataset.participant) || participant;
+          await tracking.maybeFinalize(latestParticipant, refreshed);
+          window.location.reload();
+        }));
+      }
+
+      renderTrackingRows();
+      document.getElementById('refreshTrackingBtn').addEventListener('click', () => window.location.reload());
+      document.getElementById('exportTrackingBtn').addEventListener('click', () => {
+        const columns = ['participantId', 'participantName', 'study', 'condition', 'startDate', 'trackingDay', 'sessionSlot', 'targetDate', 'targetTime', 'status', 'lateAfterSlot', 'startedAt', 'completedAt', 'taskCompletionCode', 'summaryId', 'questionnaireCompleted', 'questionnaireVersion', 'externalRecordId', 'questionnaireRegisteredAt', 'followupReason', 'followupStatus', 'followupMessage', 'followupContactedAt'];
+        const csvEscape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+        const csvRows = [columns.join(',')];
+        trackingParticipants.forEach((participant) => {
+          const participantId = participant.id || participant.participantId;
+          const participantRuns = byParticipant(trackingRuns, participantId);
+          const participantQuestionnaires = byParticipant(trackingQuestionnaires, participantId);
+          const participantFollowups = byParticipant(trackingFollowups, participantId);
+          for (let day = 1; day <= tracking.TRACKING_DAYS; day += 1) {
+            const targetDate = dateForDay(participant.startDate || participant.start_date, day);
+            const questionnaire = participantQuestionnaires.find((item) => Number(item.trackingDay || item.tracking_day) === day) || {};
+            const followup = participantFollowups.find((item) => Number(item.trackingDay || item.tracking_day) === day) || {};
+            tracking.SLOTS.forEach((slot) => {
+              const run = participantRuns.find((item) => Number(item.trackingDay || item.tracking_day) === day && String(item.sessionSlot || item.session_slot) === slot.id && String(item.targetDate || item.target_date) === targetDate) || {};
+              csvRows.push([
+                participantId,
+                participant.participantName || participant.participant_name,
+                participant.study,
+                participant.condition,
+                participant.startDate || participant.start_date,
+                day,
+                slot.id,
+                run.targetDate || run.target_date || targetDate,
+                run.targetTime || run.target_time || slot.targetTime,
+                run.status || 'missing',
+                run.lateAfterSlot ?? run.late_after_slot ?? '',
+                run.startedAt ?? run.started_at ?? '',
+                run.completedAt ?? run.completed_at ?? '',
+                run.taskCompletionCode || run.task_completion_code || '',
+                run.summaryId || run.summary_id || '',
+                questionnaire.completed ? 1 : 0,
+                questionnaire.questionnaireVersion || questionnaire.questionnaire_version || '',
+                questionnaire.externalRecordId || questionnaire.external_record_id || '',
+                questionnaire.registeredAt ?? questionnaire.registered_at ?? '',
+                followup.reason || '',
+                followup.status || '',
+                followup.message || '',
+                followup.contactedAt ?? followup.contacted_at ?? '',
+              ].map(csvEscape).join(','));
+            });
+          }
+        });
+        const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `tracking-records-${Date.now()}.csv`; a.click(); URL.revokeObjectURL(url);
+      });
 
       document.getElementById('recordsBox').textContent = JSON.stringify({
         collections: Object.fromEntries(Object.entries(records).map(([key, value]) => [key, Array.isArray(value) ? value.length : 0])),

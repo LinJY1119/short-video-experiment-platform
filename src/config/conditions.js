@@ -2,6 +2,8 @@
   const baseBrowsing = {
     minDurationSec: 600,
     maxDurationSec: 600,
+    phaseDurationSec: 600,
+    twoPhase: false,
     feedLength: 80,
     allowEarlyExit: true,
     videoSelectionMode: 'weighted_random',
@@ -27,7 +29,7 @@
   const genericExit = {
     type: 'basic',
     title: '观看提示',
-    messageTemplate: '您确定结束本次短视频观看吗',
+    messageTemplate: '您确定结束本次短视频观看吗？',
     confirmText: '确认退出',
     cancelText: '继续观看',
   };
@@ -60,6 +62,9 @@
         ...(overrides.visualTreatment || {}),
       },
       dataRecording: { ...baseRecording, ...(overrides.dataRecording || {}) },
+      exitMode: overrides.exitMode || 'tap_confirm',
+      exitHoldConfig: overrides.exitHoldConfig || null,
+      exitFeedback: overrides.exitFeedback || null,
       completion: {
         showCompletionPage: true,
         autoRedirect: false,
@@ -91,57 +96,73 @@
       title: '研究2B：界面饱和度与呈现时间',
       summary: '按组别在 5、10、15 分钟各发生一次饱和度变化，20 分钟自动弹出退出界面并强制进入后续步骤。',
     },
+    {
+      id: '3',
+      title: '研究3：追踪式短视频使用助推',
+      summary: '10分钟、65%饱和度、时间与条数反馈、长按退出。',
+    },
   ];
 
   window.EXPERIMENT_CONDITIONS = [
     condition('1a', 'g1', '研究1A-G1：无反馈控制组', {
+      browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: basicExit,
-      notes: '退出界面仅提供确认与取消按钮。',
+      notes: '对照组沿用研究1A-G1设置。',
     }),
     condition('1a', 'g2', '研究1A-G2：信息反馈组', {
+      browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: basicExit,
-      notes: '退出界面使用通用结束提示。',
+      notes: '第一阶段与第二阶段各持续10分钟；第一次弹窗后继续观看的被试进入第二阶段。',
     }),
 
     condition('1b', 'g1', '研究1B-G1：正常色彩组', {
+      browsing: { twoPhase: true, phaseDurationSec: 600 },
       visualTreatment: { grayscale: false, saturationPercent: 100 },
       exitNudge: basicExit,
     }),
     condition('1b', 'g2', '研究1B-G2：低饱和度组', {
+      browsing: { twoPhase: true, phaseDurationSec: 600 },
       visualTreatment: { grayscale: true, saturationPercent: 30, applyAtSec: 0, applyScope: 'feed' },
       exitNudge: basicExit,
     }),
 
     condition('2a', 'g1', '研究2A-G1：无反馈控制组', {
+      browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: basicExit,
       continueMode: 'tap_cancel',
     }),
     condition('2a', 'g2', '研究2A-G2：时间反馈-滑动继续', {
+      browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: { ...basicExit, cancelText: '滑动继续观看' },
       continueMode: 'swipe_to_continue',
       swipeConfig: { direction: 'up', instructionText: '滑动继续观看' },
     }),
     condition('2a', 'g3', '研究2A-G3：条数反馈-滑动继续', {
+      browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: { ...basicExit, cancelText: '滑动继续观看' },
       continueMode: 'swipe_to_continue',
       swipeConfig: { direction: 'up', instructionText: '滑动继续观看' },
     }),
     condition('2a', 'g4', '研究2A-G4：组合反馈-滑动继续', {
+      browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: { ...basicExit, cancelText: '滑动继续观看' },
       continueMode: 'swipe_to_continue',
       swipeConfig: { direction: 'up', instructionText: '滑动继续观看' },
     }),
     condition('2a', 'g5', '研究2A-G5：时间反馈-长按继续', {
+      browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: { ...basicExit, cancelText: '长按继续观看' },
       continueMode: 'hold_to_continue',
       holdConfig: { requiredMs: 5000, progressText: '长按继续观看' },
     }),
     condition('2a', 'g6', '研究2A-G6：条数反馈-长按继续', {
+      browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: { ...basicExit, cancelText: '长按继续观看' },
       continueMode: 'hold_to_continue',
       holdConfig: { requiredMs: 5000, progressText: '长按继续观看' },
     }),
     condition('2a', 'g7', '研究2A-G7：组合反馈-长按继续', {
+      browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: { ...basicExit, cancelText: '长按继续观看' },
       continueMode: 'hold_to_continue',
       holdConfig: { requiredMs: 5000, progressText: '长按继续观看' },
@@ -182,6 +203,15 @@
     condition('2b', 'g9', '研究2B-G9：15分钟-100%饱和度', {
       browsing: { maxDurationSec: 1200, feedLength: 150 },
       visualTreatment: { grayscale: false, saturationPercent: 100, applyAtSec: 900, applyScope: 'feed' },
+    }),
+
+    condition('3', 'g1', '研究3-G1：追踪实验组', {
+      browsing: { minDurationSec: 600, maxDurationSec: 600, trackingDurationSec: 600, feedLength: 120 },
+      visualTreatment: { grayscale: true, saturationPercent: 65, applyAtSec: 0, applyScope: 'feed' },
+      exitFeedback: { enabled: true, showWatchTime: true, showViewedCount: true },
+      exitMode: 'hold_to_exit',
+      exitHoldConfig: { requiredMs: 5000, progressText: '长按确认退出' },
+      notes: '10分钟、65%饱和度、有效观看时长与浏览条数双反馈、长按退出。',
     }),
   ];
 
