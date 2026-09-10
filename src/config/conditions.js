@@ -134,17 +134,17 @@
     condition('2a', 'g5', '研究2A-G5：时间反馈-长按继续', {
       exitNudge: { ...basicExit, cancelText: '长按继续观看' },
       continueMode: 'hold_to_continue',
-      holdConfig: { requiredMs: 1500, progressText: '长按继续观看' },
+      holdConfig: { requiredMs: 5000, progressText: '长按继续观看' },
     }),
     condition('2a', 'g6', '研究2A-G6：条数反馈-长按继续', {
       exitNudge: { ...basicExit, cancelText: '长按继续观看' },
       continueMode: 'hold_to_continue',
-      holdConfig: { requiredMs: 1500, progressText: '长按继续观看' },
+      holdConfig: { requiredMs: 5000, progressText: '长按继续观看' },
     }),
     condition('2a', 'g7', '研究2A-G7：组合反馈-长按继续', {
       exitNudge: { ...basicExit, cancelText: '长按继续观看' },
       continueMode: 'hold_to_continue',
-      holdConfig: { requiredMs: 1500, progressText: '长按继续观看' },
+      holdConfig: { requiredMs: 5000, progressText: '长按继续观看' },
     }),
 
     condition('2b', 'g1', '研究2B-G1：5分钟-30%饱和度', {
