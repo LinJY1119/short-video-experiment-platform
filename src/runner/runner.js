@@ -49,11 +49,13 @@ const PHASE_DURATION_MS = Number(
   params.get('phaseCap') || condition?.browsing?.phaseDurationSec || condition?.browsing?.maxDurationSec || 0
 ) * 1000;
 const EXIT_LOCKED_STUDIES = new Set(['1a', '1b', '2a']);
-const EXIT_UNLOCK_MS = EXIT_LOCKED_STUDIES.has(condition?.study)
-  ? TIME_CAP_MS
-  : condition?.study === '2b'
-    ? Number(condition.visualTreatment?.applyAtSec || 0) * 1000
-    : 0;
+const EXIT_UNLOCK_MS = isTrackingRun
+  ? TRACKING_TIME_CAP_MS
+  : EXIT_LOCKED_STUDIES.has(condition?.study)
+    ? TIME_CAP_MS
+    : condition?.study === '2b'
+      ? Number(condition.visualTreatment?.applyAtSec || 0) * 1000
+      : 0;
 
 const ICONS = {
   heart: '<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 42.7l-2.6-2.3C11.5 31.6 5 25.7 5 18.5 5 12.7 9.6 8 15.4 8c3.3 0 6.4 1.5 8.6 4 2.2-2.5 5.3-4 8.6-4C38.4 8 43 12.7 43 18.5c0 7.2-6.5 13.1-16.4 21.9L24 42.7z"/></svg>',
@@ -420,9 +422,10 @@ function startFeed() {
   function applyVisualTreatment() {
     state.visualApplied = true;
     const saturation = Number(condition.visualTreatment.saturationPercent || 100) / 100;
+    const brightness = Number(condition.visualTreatment.brightnessPercent ?? (saturation < 1 ? 92 : 100)) / 100;
     feedVisual.style.setProperty('--feed-saturation', String(saturation));
-    feedVisual.style.setProperty('--feed-brightness', saturation < 1 ? '0.92' : '1');
-    logEvent('visual-treatment-applied', { target: 'feed', value: String(condition.visualTreatment.saturationPercent) });
+    feedVisual.style.setProperty('--feed-brightness', String(brightness));
+    logEvent('visual-treatment-applied', { target: 'feed', value: `${condition.visualTreatment.saturationPercent}/${condition.visualTreatment.brightnessPercent ?? (saturation < 1 ? 92 : 100)}` });
   }
 
   function phaseCapMs() {
