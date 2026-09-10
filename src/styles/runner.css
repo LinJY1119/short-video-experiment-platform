@@ -585,6 +585,8 @@ html, body {
   margin: 0 0 calc(16 * var(--u));
 }
 
+.feedback-metrics--single { grid-template-columns: 1fr; }
+
 .feedback-metric {
   padding: calc(10 * var(--u));
   border-radius: calc(12 * var(--u));
@@ -613,11 +615,24 @@ html, body {
 .card-btn__progress {
   position: absolute;
   inset: 0 auto 0 0;
+  z-index: 0;
   width: 0%;
-  background: rgba(254, 44, 85, .16);
+  background: rgba(255, 176, 0, .72);
   pointer-events: none;
+  transition: width .05s linear;
 }
-.card-btn span { position: relative; z-index: 1; }
+.card-btn--primary .card-btn__progress { background: rgba(255, 176, 0, .82); }
+.card-btn > span:not(.card-btn__progress) {
+  position: relative;
+  z-index: 1;
+}
+.card-btn.is-holding {
+  border: 2px solid #ffb000;
+  color: #161823;
+  box-shadow: 0 0 0 calc(3 * var(--u)) rgba(255, 176, 0, .24);
+}
+.card-btn.is-holding .card-btn__progress { background: #ffb000; }
+.card-btn .hold-label { display: block; }
 .exit-lock-note { margin: calc(10 * var(--u)) 0 0; color: #86878b; font-size: calc(12 * var(--u)); line-height: 1.5; }
 
 .swipe-continue-slider {

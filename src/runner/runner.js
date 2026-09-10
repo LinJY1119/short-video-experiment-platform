@@ -174,6 +174,7 @@ function showIntro() {
       <li>按住屏幕<strong>左侧或右侧边缘</strong>为 2 倍速播放，松开恢复正常速度。</li>
       <li>轻点屏幕中间可开启或关闭声音。</li>
       <li>请持续浏览视频，达到当前阶段规定时间后页面会显示下一步提示；未达到规定时间前点击退出不会结束实验。</li>
+      <li><strong>请您在接下来的实验过程中保持在该网站的浏览，请勿退出或切屏。</strong></li>
       <li>第一阶段结束后，如选择继续观看，需要先返回见数完成问卷，再回到本页面点击按钮进入下一阶段。</li>
     </ul>
     <p>请按自己平时的习惯自由浏览。</p>
@@ -701,15 +702,16 @@ function startFeed() {
 
   function exitFeedbackHTML() {
     if (!condition.exitFeedback?.enabled) return '';
-    const rows = [];
+    const metrics = [];
     if (condition.exitFeedback.showWatchTime) {
-      rows.push(`<p><strong>本次有效观看时长：</strong>${formatDuration(nowMs())}</p>`);
+      metrics.push(`<div class="feedback-metric"><b>${formatDuration(nowMs())}</b><span>本次有效观看时长</span></div>`);
     }
     if (condition.exitFeedback.showViewedCount) {
-      rows.push(`<p><strong>已浏览视频条数：</strong>${state.visited.size} 条</p>`);
+      metrics.push(`<div class="feedback-metric"><b>${state.visited.size} 条</b><span>已浏览视频条数</span></div>`);
     }
-    if (!rows.length) return '';
-    return `<div class="exit-feedback">${rows.join('')}</div>`;
+    if (!metrics.length) return '';
+    const layoutClass = metrics.length === 1 ? ' feedback-metrics--single' : '';
+    return `<div class="feedback-metrics${layoutClass}" aria-label="浏览状态反馈">${metrics.join('')}</div>`;
   }
 
   async function ensureCompletionCode() {
@@ -785,7 +787,11 @@ function startFeed() {
   async function confirmExit() {
     const fromTimeCap = state.exitReason === 'time_cap';
     if (fromTimeCap) {
-      state.timeCapChoice = activePhase === 'phase_1' ? 'phase_1_exit' : 'phase_2_exit';
+      state.timeCapChoice = activePhase === 'phase_1'
+        ? 'phase_1_exit'
+        : activePhase === 'phase_2'
+          ? 'phase_2_exit'
+          : 'single_phase_exit';
     }
     await recordExitDecision('exit', fromTimeCap ? 'time_cap' : 'manual_exit');
     if (fromTimeCap && activePhase === 'phase_2') {
@@ -796,63 +802,102 @@ function startFeed() {
       await ensureCompletionCode();
     }
     void finish(fromTimeCap
-      ? 'phase_1_time_cap_exit'
+      ? (TWO_PHASE ? 'phase_1_time_cap_exit' : 'single_phase_time_cap_exit')
       : 'manual_exit', { showCompletionCode: true });
   }
 
-  function bindHoldExit(confirmBtn) {
-    const required = condition.exitHoldConfig?.requiredMs || 1500;
-    const fill = confirmBtn.querySelector('#exitHoldProgress');
+  function formatHoldSeconds(ms) {
+    const seconds = Math.max(0, ms / 1000);
+    return seconds.toFixed(1).replace(/\.0$/, '');
+  }
+
+  function bindHoldButton(button, {
+    requiredMs,
+    initialText,
+    startEvent,
+    cancelEvent,
+    target,
+    onComplete,
+    startDetail,
+  }) {
+    const required = Math.max(1, Number(requiredMs) || 1500);
+    const fill = button.querySelector('.card-btn__progress');
+    const label = button.querySelector('.hold-label');
+    const initialLabel = initialText || label?.textContent || '';
     let start = null;
+    let activePointerId = null;
     let raf = null;
 
-    function clearHold() {
+    function resetHold() {
       start = null;
+      activePointerId = null;
       if (raf) cancelAnimationFrame(raf);
       raf = null;
+      button.classList.remove('is-holding');
       if (fill) fill.style.width = '0%';
+      if (label) label.textContent = initialLabel;
+      button.setAttribute('aria-label', initialLabel);
+    }
+
+    function cancelHold(event) {
+      if (activePointerId !== null && event?.pointerId !== activePointerId) return;
+      if (start !== null) {
+        logEvent(cancelEvent, {
+          target,
+          duration: Math.round(performance.now() - start),
+        });
+      }
+      resetHold();
     }
 
     function tick() {
       if (start === null) return;
-      const elapsed = performance.now() - start;
-      if (fill) fill.style.width = `${Math.min(100, (elapsed / required) * 100)}%`;
+      const elapsed = Math.max(0, performance.now() - start);
+      const progress = Math.min(100, (elapsed / required) * 100);
+      button.classList.add('is-holding');
+      if (fill) fill.style.width = `${progress}%`;
+      if (label) label.textContent = `长按中 ${formatHoldSeconds(elapsed)} / ${formatHoldSeconds(required)} 秒`;
+      button.setAttribute('aria-label', `长按中，已持续 ${formatHoldSeconds(elapsed)} 秒，共需 ${formatHoldSeconds(required)} 秒`);
       if (elapsed >= required) {
-        clearHold();
-        confirmExit();
+        resetHold();
+        void onComplete();
         return;
       }
       raf = requestAnimationFrame(tick);
     }
 
-    confirmBtn.addEventListener('pointerdown', (event) => {
+    button.setAttribute('aria-label', initialLabel);
+    button.addEventListener('pointerdown', (event) => {
       event.preventDefault();
+      if (start !== null) return;
+      activePointerId = event.pointerId;
+      button.setPointerCapture?.(event.pointerId);
       start = performance.now();
-      logEvent('hold-exit-start', { target: 'confirm_exit_button' });
+      logEvent(startEvent, { target, ...(startDetail ? startDetail(event) : {}) });
       tick();
     });
-    ['pointerup', 'pointerleave', 'pointercancel'].forEach((eventName) => {
-      confirmBtn.addEventListener(eventName, () => {
-        if (start !== null) logEvent('hold-exit-cancelled', {
-          target: 'confirm_exit_button',
-          duration: Math.round(performance.now() - start),
-        });
-        clearHold();
-      });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((eventName) => {
+      button.addEventListener(eventName, cancelHold);
     });
+    button.addEventListener('contextmenu', (event) => event.preventDefault());
   }
 
   function renderExitCard() {
     const message = condition.exitNudge.messageTemplate || '感谢观看视频，您现在需要去见数继续完成问卷。';
-    const confirmText = escapeHtml(condition.exitNudge.confirmText || '确认退出');
-    const cancelText = escapeHtml(condition.exitNudge.cancelText || '继续观看');
+    const confirmTextValue = condition.exitNudge.confirmText || '确认退出';
+    const cancelTextValue = condition.exitNudge.cancelText || '继续观看';
+    const confirmText = escapeHtml(confirmTextValue);
+    const cancelText = escapeHtml(cancelTextValue);
+    const exitHoldMs = condition.exitHoldConfig?.requiredMs || 1500;
+    const continueHoldMs = condition.holdConfig?.requiredMs || 1500;
+    const exitHoldText = condition.exitHoldConfig?.progressText || confirmTextValue;
     const primary = condition.exitMode === 'hold_to_exit'
-      ? `<button type="button" class="card-btn card-btn--primary" id="confirmExitBtn"><span class="card-btn__progress" id="exitHoldProgress"></span><span>${escapeHtml(condition.exitHoldConfig?.progressText || confirmText)}</span></button>`
+      ? `<button type="button" class="card-btn card-btn--primary" id="confirmExitBtn"><span class="card-btn__progress" id="exitHoldProgress"></span><span class="hold-label" aria-live="polite">${escapeHtml(holdInstructionText(exitHoldText, exitHoldMs))}</span></button>`
       : `<button type="button" class="card-btn card-btn--primary" id="confirmExitBtn"><span>${confirmText}</span></button>`;
     const secondary = isTrackingRun && state.trackingCapReached
       ? `<p class="exit-lock-note">本次已达到10分钟，请长按上方按钮结束本次任务。</p>`
       : condition.continueMode === 'hold_to_continue'
-        ? `<button type="button" class="card-btn card-btn--secondary" id="cancelExitBtn"><span class="card-btn__progress" id="holdProgress"></span><span>${cancelText}</span></button>`
+        ? `<button type="button" class="card-btn card-btn--secondary" id="cancelExitBtn"><span class="card-btn__progress" id="holdProgress"></span><span class="hold-label" aria-live="polite">${escapeHtml(holdInstructionText(cancelTextValue, continueHoldMs))}</span></button>`
       : condition.continueMode === 'swipe_to_continue'
         ? `<div class="swipe-continue-slider" id="continueSlider">
             <div class="swipe-continue-slider__label">左右拖动滑块继续观看</div>
@@ -871,51 +916,39 @@ function startFeed() {
     `;
 
     const confirmBtn = exitCard.querySelector('#confirmExitBtn');
-    if (isTrackingRun && state.trackingCapReached && confirmBtn) bindHoldExit(confirmBtn);
-    else if (condition.exitMode === 'hold_to_exit' && confirmBtn) bindHoldExit(confirmBtn);
-    else if (confirmBtn) confirmBtn.addEventListener('click', confirmExit);
+    if (isTrackingRun && state.trackingCapReached && confirmBtn) {
+      bindHoldButton(confirmBtn, {
+        requiredMs: exitHoldMs,
+        initialText: holdInstructionText(exitHoldText, exitHoldMs),
+        startEvent: 'hold-exit-start',
+        cancelEvent: 'hold-exit-cancelled',
+        target: 'confirm_exit_button',
+        onComplete: confirmExit,
+      });
+    } else if (condition.exitMode === 'hold_to_exit' && confirmBtn) {
+      bindHoldButton(confirmBtn, {
+        requiredMs: exitHoldMs,
+        initialText: holdInstructionText(exitHoldText, exitHoldMs),
+        startEvent: 'hold-exit-start',
+        cancelEvent: 'hold-exit-cancelled',
+        target: 'confirm_exit_button',
+        onComplete: confirmExit,
+      });
+    } else if (confirmBtn) confirmBtn.addEventListener('click', confirmExit);
     const cancelBtn = exitCard.querySelector('#cancelExitBtn');
     const continueSlider = exitCard.querySelector('#continueSlider');
-    if (condition.continueMode === 'hold_to_continue' && cancelBtn) bindHoldContinue(cancelBtn);
-    else if (condition.continueMode === 'swipe_to_continue' && continueSlider) bindSwipeContinue(continueSlider);
+    if (condition.continueMode === 'hold_to_continue' && cancelBtn) {
+      bindHoldButton(cancelBtn, {
+        requiredMs: continueHoldMs,
+        initialText: holdInstructionText(cancelTextValue, continueHoldMs),
+        startEvent: 'hold-continue-start',
+        cancelEvent: 'hold-continue-cancelled',
+        target: 'cancel_exit_button',
+        onComplete: () => cancelExit('hold_to_continue'),
+        startDetail: (event) => ({ x: Math.round(event.clientX), y: Math.round(event.clientY) }),
+      });
+    } else if (condition.continueMode === 'swipe_to_continue' && continueSlider) bindSwipeContinue(continueSlider);
     else if (cancelBtn) cancelBtn.addEventListener('click', cancelExit);
-  }
-
-  function bindHoldContinue(cancelBtn) {
-    const required = condition.holdConfig?.requiredMs || 1500;
-    const fill = cancelBtn.querySelector('#holdProgress');
-    let start = null;
-    let raf = null;
-
-    function clearHold() {
-      start = null;
-      if (raf) cancelAnimationFrame(raf);
-      raf = null;
-      if (fill) fill.style.width = '0%';
-    }
-
-    function tick() {
-      if (start === null) return;
-      const elapsed = performance.now() - start;
-      if (fill) fill.style.width = `${Math.min(100, (elapsed / required) * 100)}%`;
-      if (elapsed >= required) {
-        clearHold();
-        cancelExit('hold_to_continue');
-        return;
-      }
-      raf = requestAnimationFrame(tick);
-    }
-
-    cancelBtn.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      start = performance.now();
-      logEvent('hold-continue-start', { target: 'cancel_exit_button', x: Math.round(e.clientX), y: Math.round(e.clientY) });
-      tick();
-    });
-    ['pointerup', 'pointerleave', 'pointercancel'].forEach((evt) => cancelBtn.addEventListener(evt, () => {
-      if (start !== null) logEvent('hold-continue-cancelled', { target: 'cancel_exit_button', duration: Math.round(performance.now() - start) });
-      clearHold();
-    }));
   }
 
   function bindSwipeContinue(container) {
@@ -1127,6 +1160,12 @@ function startFeed() {
       logEvent('phase-2-ended', { target: 'experiment_end' });
       void finish('phase_2_time_cap_continue', { showCompletionCode: false });
       renderDebug('phase_2_ended');
+      return;
+    }
+    if (exitReason === 'time_cap' && !TWO_PHASE) {
+      state.timeCapChoice = 'single_phase_continue';
+      void finish('single_phase_time_cap_continue', { showCompletionCode: true });
+      renderDebug('single_phase_time_cap_completed');
       return;
     }
     exitLayer.classList.remove('is-open');

@@ -35,6 +35,9 @@
   };
 
   const basicExit = genericExit;
+  const timeFeedback = { enabled: true, showWatchTime: true, showViewedCount: false };
+  const countFeedback = { enabled: true, showWatchTime: false, showViewedCount: true };
+  const combinedFeedback = { enabled: true, showWatchTime: true, showViewedCount: true };
 
   function condition(study, conditionId, name, overrides) {
     return {
@@ -138,36 +141,42 @@
       exitNudge: { ...basicExit, cancelText: '滑动继续观看' },
       continueMode: 'swipe_to_continue',
       swipeConfig: { direction: 'up', instructionText: '滑动继续观看' },
+      exitFeedback: timeFeedback,
     }),
     condition('2a', 'g3', '研究2A-G3：条数反馈-滑动继续', {
       browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: { ...basicExit, cancelText: '滑动继续观看' },
       continueMode: 'swipe_to_continue',
       swipeConfig: { direction: 'up', instructionText: '滑动继续观看' },
+      exitFeedback: countFeedback,
     }),
     condition('2a', 'g4', '研究2A-G4：组合反馈-滑动继续', {
       browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: { ...basicExit, cancelText: '滑动继续观看' },
       continueMode: 'swipe_to_continue',
       swipeConfig: { direction: 'up', instructionText: '滑动继续观看' },
+      exitFeedback: combinedFeedback,
     }),
     condition('2a', 'g5', '研究2A-G5：时间反馈-长按继续', {
       browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: { ...basicExit, cancelText: '长按继续观看' },
       continueMode: 'hold_to_continue',
       holdConfig: { requiredMs: 5000, progressText: '长按继续观看' },
+      exitFeedback: timeFeedback,
     }),
     condition('2a', 'g6', '研究2A-G6：条数反馈-长按继续', {
       browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: { ...basicExit, cancelText: '长按继续观看' },
       continueMode: 'hold_to_continue',
       holdConfig: { requiredMs: 5000, progressText: '长按继续观看' },
+      exitFeedback: countFeedback,
     }),
     condition('2a', 'g7', '研究2A-G7：组合反馈-长按继续', {
       browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: { ...basicExit, cancelText: '长按继续观看' },
       continueMode: 'hold_to_continue',
       holdConfig: { requiredMs: 5000, progressText: '长按继续观看' },
+      exitFeedback: combinedFeedback,
     }),
 
     condition('2b', 'g1', '研究2B-G1：5分钟-30%饱和度', {
