@@ -819,6 +819,7 @@ function startFeed() {
     target,
     onComplete,
     startDetail,
+    enhancedFeedback = false,
   }) {
     const required = Math.max(1, Number(requiredMs) || 1500);
     const fill = button.querySelector('.card-btn__progress');
@@ -827,20 +828,46 @@ function startFeed() {
     let start = null;
     let activePointerId = null;
     let raf = null;
+    let nextVibrationAt = 0;
+    let pageGuardsAttached = false;
 
-    function resetHold() {
+    function triggerVibration(pattern) {
+      if (!enhancedFeedback || typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
+      try {
+        navigator.vibrate(pattern);
+      } catch (error) {
+        logEvent('hold-vibration-error', {
+          target,
+          value: error instanceof Error ? error.name : 'unknown',
+        });
+      }
+    }
+
+    function detachPageGuards() {
+      if (!pageGuardsAttached) return;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+      pageGuardsAttached = false;
+    }
+
+    function resetHold(stopVibration = true) {
       start = null;
       activePointerId = null;
+      nextVibrationAt = 0;
       if (raf) cancelAnimationFrame(raf);
       raf = null;
-      button.classList.remove('is-holding');
+      button.classList.remove('is-holding', 'is-hold-complete');
+      button.style.setProperty('--hold-progress', '0%');
+      if (enhancedFeedback) button.setAttribute('aria-valuenow', '0');
       if (fill) fill.style.width = '0%';
       if (label) label.textContent = initialLabel;
       button.setAttribute('aria-label', initialLabel);
+      if (stopVibration) triggerVibration(0);
+      detachPageGuards();
     }
 
     function cancelHold(event) {
-      if (activePointerId !== null && event?.pointerId !== activePointerId) return;
+      if (event && activePointerId !== null && event.pointerId !== activePointerId) return;
       if (start !== null) {
         logEvent(cancelEvent, {
           target,
@@ -850,22 +877,77 @@ function startFeed() {
       resetHold();
     }
 
+    function handleVisibilityChange() {
+      if (document.hidden) cancelHold();
+    }
+
+    function handleWindowBlur() {
+      cancelHold();
+    }
+
+    function attachPageGuards() {
+      if (!enhancedFeedback || pageGuardsAttached) return;
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      window.addEventListener('blur', handleWindowBlur);
+      pageGuardsAttached = true;
+    }
+
+    function completeHold() {
+      if (!enhancedFeedback) {
+        resetHold();
+        void onComplete();
+        return;
+      }
+      start = null;
+      activePointerId = null;
+      if (raf) cancelAnimationFrame(raf);
+      raf = null;
+      detachPageGuards();
+      button.classList.remove('is-holding');
+      button.classList.add('is-hold-complete');
+      button.style.setProperty('--hold-progress', '100%');
+      if (enhancedFeedback) button.setAttribute('aria-valuenow', '100');
+      if (fill) fill.style.width = '100%';
+      if (label) label.textContent = '已完成';
+      button.setAttribute('aria-label', '长按完成');
+      triggerVibration([40, 30, 70]);
+      window.setTimeout(() => {
+        resetHold(false);
+        void onComplete();
+      }, 180);
+    }
+
     function tick() {
       if (start === null) return;
       const elapsed = Math.max(0, performance.now() - start);
       const progress = Math.min(100, (elapsed / required) * 100);
       button.classList.add('is-holding');
+      if (enhancedFeedback) {
+        button.style.setProperty('--hold-progress', `${progress}%`);
+        button.setAttribute('aria-valuenow', String(Math.round(progress)));
+        if (elapsed >= nextVibrationAt) {
+          triggerVibration(25);
+          nextVibrationAt = elapsed + 750;
+        }
+      }
       if (fill) fill.style.width = `${progress}%`;
       if (label) label.textContent = `长按中 ${formatHoldSeconds(elapsed)} / ${formatHoldSeconds(required)} 秒`;
       button.setAttribute('aria-label', `长按中，已持续 ${formatHoldSeconds(elapsed)} 秒，共需 ${formatHoldSeconds(required)} 秒`);
       if (elapsed >= required) {
-        resetHold();
-        void onComplete();
+        completeHold();
         return;
       }
       raf = requestAnimationFrame(tick);
     }
 
+    button.classList.toggle('has-hold-feedback', enhancedFeedback);
+    button.style.setProperty('--hold-progress', '0%');
+    if (enhancedFeedback) {
+      button.setAttribute('role', 'progressbar');
+      button.setAttribute('aria-valuemin', '0');
+      button.setAttribute('aria-valuemax', '100');
+      button.setAttribute('aria-valuenow', '0');
+    }
     button.setAttribute('aria-label', initialLabel);
     button.addEventListener('pointerdown', (event) => {
       event.preventDefault();
@@ -873,6 +955,11 @@ function startFeed() {
       activePointerId = event.pointerId;
       button.setPointerCapture?.(event.pointerId);
       start = performance.now();
+      attachPageGuards();
+      if (enhancedFeedback) {
+        nextVibrationAt = 650;
+        triggerVibration(20);
+      }
       logEvent(startEvent, { target, ...(startDetail ? startDetail(event) : {}) });
       tick();
     });
@@ -892,12 +979,12 @@ function startFeed() {
     const continueHoldMs = condition.holdConfig?.requiredMs || 1500;
     const exitHoldText = condition.exitHoldConfig?.progressText || confirmTextValue;
     const primary = condition.exitMode === 'hold_to_exit'
-      ? `<button type="button" class="card-btn card-btn--primary" id="confirmExitBtn"><span class="card-btn__progress" id="exitHoldProgress"></span><span class="hold-label" aria-live="polite">${escapeHtml(holdInstructionText(exitHoldText, exitHoldMs))}</span></button>`
+      ? `<button type="button" class="card-btn card-btn--primary" id="confirmExitBtn"><span class="card-btn__progress" id="exitHoldProgress"></span><span class="hold-progress-ring" aria-hidden="true"></span><span class="hold-label" aria-live="polite">${escapeHtml(holdInstructionText(exitHoldText, exitHoldMs))}</span></button>`
       : `<button type="button" class="card-btn card-btn--primary" id="confirmExitBtn"><span>${confirmText}</span></button>`;
     const secondary = isTrackingRun && state.trackingCapReached
       ? `<p class="exit-lock-note">本次已达到10分钟，请长按上方按钮结束本次任务。</p>`
       : condition.continueMode === 'hold_to_continue'
-        ? `<button type="button" class="card-btn card-btn--secondary" id="cancelExitBtn"><span class="card-btn__progress" id="holdProgress"></span><span class="hold-label" aria-live="polite">${escapeHtml(holdInstructionText(cancelTextValue, continueHoldMs))}</span></button>`
+        ? `<button type="button" class="card-btn card-btn--secondary" id="cancelExitBtn"><span class="card-btn__progress" id="holdProgress"></span><span class="hold-progress-ring" aria-hidden="true"></span><span class="hold-label" aria-live="polite">${escapeHtml(holdInstructionText(cancelTextValue, continueHoldMs))}</span></button>`
       : condition.continueMode === 'swipe_to_continue'
         ? `<div class="swipe-continue-slider" id="continueSlider">
             <div class="swipe-continue-slider__label">左右拖动滑块继续观看</div>
@@ -946,6 +1033,7 @@ function startFeed() {
         target: 'cancel_exit_button',
         onComplete: () => cancelExit('hold_to_continue'),
         startDetail: (event) => ({ x: Math.round(event.clientX), y: Math.round(event.clientY) }),
+        enhancedFeedback: condition.study === '2a',
       });
     } else if (condition.continueMode === 'swipe_to_continue' && continueSlider) bindSwipeContinue(continueSlider);
     else if (cancelBtn) cancelBtn.addEventListener('click', cancelExit);

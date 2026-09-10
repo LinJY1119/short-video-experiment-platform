@@ -617,22 +617,63 @@ html, body {
   inset: 0 auto 0 0;
   z-index: 0;
   width: 0%;
+  border-radius: inherit;
   background: rgba(255, 176, 0, .72);
   pointer-events: none;
   transition: width .05s linear;
 }
 .card-btn--primary .card-btn__progress { background: rgba(255, 176, 0, .82); }
-.card-btn > span:not(.card-btn__progress) {
+.card-btn > span:not(.card-btn__progress):not(.hold-progress-ring) {
   position: relative;
   z-index: 1;
 }
+.card-btn.has-hold-feedback {
+  isolation: isolate;
+  overflow: visible;
+  touch-action: manipulation;
+  user-select: none;
+}
+.card-btn.has-hold-feedback::before {
+  content: '';
+  position: absolute;
+  inset: calc(-5 * var(--u));
+  z-index: 0;
+  border-radius: calc(13 * var(--u));
+  background: conic-gradient(from -90deg, #2388ff var(--hold-progress), rgba(35, 136, 255, .16) var(--hold-progress));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  padding: calc(3 * var(--u));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease;
+}
+.card-btn.has-hold-feedback.is-holding::before,
+.card-btn.has-hold-feedback.is-hold-complete::before { opacity: 1; }
 .card-btn.is-holding {
   border: 2px solid #ffb000;
   color: #161823;
   box-shadow: 0 0 0 calc(3 * var(--u)) rgba(255, 176, 0, .24);
 }
 .card-btn.is-holding .card-btn__progress { background: #ffb000; }
-.card-btn .hold-label { display: block; }
+.card-btn.is-hold-complete { border-color: #2ebd85; }
+.card-btn.is-hold-complete::before {
+  background: conic-gradient(from -90deg, #2ebd85 100%, rgba(46, 189, 133, .18) 100%);
+}
+.card-btn .hold-label,
+.card-btn .hold-progress-ring { display: block; }
+.card-btn .hold-progress-ring {
+  position: absolute;
+  inset: calc(-5 * var(--u));
+  z-index: 0;
+  border-radius: calc(13 * var(--u));
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-btn.has-hold-feedback::before,
+  .card-btn__progress { transition: none; }
+}
 .exit-lock-note { margin: calc(10 * var(--u)) 0 0; color: #86878b; font-size: calc(12 * var(--u)); line-height: 1.5; }
 
 .swipe-continue-slider {
