@@ -4,7 +4,7 @@
     maxDurationSec: 600,
     phaseDurationSec: 600,
     twoPhase: false,
-    feedLength: 80,
+    feedLength: 300,
     allowEarlyExit: true,
     videoSelectionMode: 'weighted_random',
   };
@@ -180,44 +180,44 @@
     }),
 
     condition('2b', 'g1', '研究2B-G1：5分钟-30%饱和度', {
-      browsing: { maxDurationSec: 1200, feedLength: 120 },
+      browsing: { maxDurationSec: 1200, feedLength: 300 },
       visualTreatment: { grayscale: true, saturationPercent: 30, applyAtSec: 300, applyScope: 'feed' },
     }),
     condition('2b', 'g2', '研究2B-G2：5分钟-65%饱和度', {
-      browsing: { maxDurationSec: 1200, feedLength: 120 },
+      browsing: { maxDurationSec: 1200, feedLength: 300 },
       visualTreatment: { grayscale: true, saturationPercent: 65, applyAtSec: 300, applyScope: 'feed' },
     }),
     condition('2b', 'g3', '研究2B-G3：5分钟-100%饱和度', {
-      browsing: { maxDurationSec: 1200, feedLength: 120 },
+      browsing: { maxDurationSec: 1200, feedLength: 300 },
       visualTreatment: { grayscale: false, saturationPercent: 100, applyAtSec: 300, applyScope: 'feed' },
     }),
     condition('2b', 'g4', '研究2B-G4：10分钟-30%饱和度', {
-      browsing: { maxDurationSec: 1200, feedLength: 120 },
+      browsing: { maxDurationSec: 1200, feedLength: 300 },
       visualTreatment: { grayscale: true, saturationPercent: 30, applyAtSec: 600, applyScope: 'feed' },
     }),
     condition('2b', 'g5', '研究2B-G5：10分钟-65%饱和度', {
-      browsing: { maxDurationSec: 1200, feedLength: 120 },
+      browsing: { maxDurationSec: 1200, feedLength: 300 },
       visualTreatment: { grayscale: true, saturationPercent: 65, applyAtSec: 600, applyScope: 'feed' },
     }),
     condition('2b', 'g6', '研究2B-G6：10分钟-100%饱和度', {
-      browsing: { maxDurationSec: 1200, feedLength: 120 },
+      browsing: { maxDurationSec: 1200, feedLength: 300 },
       visualTreatment: { grayscale: false, saturationPercent: 100, applyAtSec: 600, applyScope: 'feed' },
     }),
     condition('2b', 'g7', '研究2B-G7：15分钟-30%饱和度', {
-      browsing: { maxDurationSec: 1200, feedLength: 150 },
+      browsing: { maxDurationSec: 1200, feedLength: 300 },
       visualTreatment: { grayscale: true, saturationPercent: 30, applyAtSec: 900, applyScope: 'feed' },
     }),
     condition('2b', 'g8', '研究2B-G8：15分钟-65%饱和度', {
-      browsing: { maxDurationSec: 1200, feedLength: 150 },
+      browsing: { maxDurationSec: 1200, feedLength: 300 },
       visualTreatment: { grayscale: true, saturationPercent: 65, applyAtSec: 900, applyScope: 'feed' },
     }),
     condition('2b', 'g9', '研究2B-G9：15分钟-100%饱和度', {
-      browsing: { maxDurationSec: 1200, feedLength: 150 },
+      browsing: { maxDurationSec: 1200, feedLength: 300 },
       visualTreatment: { grayscale: false, saturationPercent: 100, applyAtSec: 900, applyScope: 'feed' },
     }),
 
     condition('3', 'g1', '研究3-G1：追踪实验组', {
-      browsing: { minDurationSec: 600, maxDurationSec: 600, trackingDurationSec: 600, feedLength: 120 },
+      browsing: { minDurationSec: 600, maxDurationSec: 600, trackingDurationSec: 600, feedLength: 300 },
       visualTreatment: { grayscale: true, saturationPercent: 65, brightnessPercent: 100, applyAtSec: 0, applyScope: 'feed' },
       exitFeedback: { enabled: true, showWatchTime: true, showViewedCount: true },
       exitMode: 'hold_to_exit',
