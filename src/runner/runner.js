@@ -215,10 +215,19 @@ function captionHTML(item) {
   `;
 }
 
+function formatBeijingTime(date = new Date()) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
 function statusBarHTML() {
   return `
     <div class="status-bar">
-      <span>21:47</span>
+      <span id="statusBarTime">${formatBeijingTime()}</span>
       <span class="status-bar__right">${ICONS.signal}${ICONS.wifi}${ICONS.battery}</span>
     </div>
   `;
@@ -291,6 +300,7 @@ function startFeed() {
   const exitLayer = document.getElementById('exitLayer');
   const exitCard = document.getElementById('exitCard');
   const debugBox = document.getElementById('debugBox');
+  const statusBarTime = document.getElementById('statusBarTime');
 
   const state = {
     index: 0,
@@ -317,6 +327,7 @@ function startFeed() {
     unmuted: false,
     capTimer: null,
     visualTimer: null,
+    clockTimer: null,
     visualApplied: false,
     timeCapPrompted: false,
     finished: false,
@@ -329,11 +340,26 @@ function startFeed() {
 
   const activeVideo = () => videos[state.index];
 
+  function updateStatusBarTime() {
+    if (statusBarTime) statusBarTime.textContent = formatBeijingTime();
+  }
+
+  function startStatusBarClock() {
+    updateStatusBarTime();
+    if (state.clockTimer) window.clearInterval(state.clockTimer);
+    state.clockTimer = window.setInterval(updateStatusBarTime, 1000);
+  }
+
   function clearPendingTimers() {
     if (state.capTimer) window.clearTimeout(state.capTimer);
     if (state.visualTimer) window.clearTimeout(state.visualTimer);
     state.capTimer = null;
     state.visualTimer = null;
+  }
+
+  function stopStatusBarClock() {
+    if (state.clockTimer) window.clearInterval(state.clockTimer);
+    state.clockTimer = null;
   }
 
   function pauseViewingForOverlay() {
@@ -838,6 +864,7 @@ function startFeed() {
     if (state.finished) return;
     state.finished = true;
     clearPendingTimers();
+    stopStatusBarClock();
     if (state.enterAt !== null) {
       state.dwellMs[state.index] += Math.round(performance.now() - state.enterAt);
       state.enterAt = null;
@@ -944,6 +971,7 @@ function startFeed() {
   }
 
   exitBtn.addEventListener('click', openExit);
+  startStatusBarClock();
   scheduleCapTimer();
   scheduleVisualTreatment();
   renderOverlay();
