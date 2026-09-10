@@ -27,7 +27,7 @@
   const genericExit = {
     type: 'basic',
     title: '观看提示',
-    messageTemplate: '感谢观看视频，您现在需要去见数继续完成问卷。',
+    messageTemplate: '您确定结束本次短视频观看吗',
     confirmText: '确认退出',
     cancelText: '继续观看',
   };
