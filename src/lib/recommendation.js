@@ -33,26 +33,93 @@
     return shuffle(slots, rng);
   }
 
-  function createCyclingPicker(source, rng) {
-    let queue = [];
+  function groupByCategory(assets) {
+    return assets.reduce((map, item) => {
+      const key = item.primary_category || 'uncategorized';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(item);
+      return map;
+    }, new Map());
+  }
 
-    function refill(avoidSampleId) {
-      queue = shuffle(source, rng);
-      if (queue.length > 1 && queue[0]?.sample_id === avoidSampleId) {
-        const swapIndex = queue.findIndex((item) => item.sample_id !== avoidSampleId);
-        if (swapIndex > 0) [queue[0], queue[swapIndex]] = [queue[swapIndex], queue[0]];
+  function createNonRepeatingPicker(assets, selectedCategories, rng) {
+    const allAssets = assets.slice();
+    const allSampleIds = new Set(allAssets.map((item) => item.sample_id));
+    const allCategories = Array.from(new Set(allAssets.map((item) => item.primary_category || 'uncategorized')));
+    const selected = new Set(selectedCategories || []);
+    const preferredCategories = allCategories.filter((category) => selected.has(category));
+    const otherCategories = allCategories.filter((category) => !selected.has(category));
+    const categoryMap = groupByCategory(allAssets);
+    const categoryQueues = new Map();
+    const usedInCurrentCycle = new Set();
+
+    function resetIfCycleComplete() {
+      if (usedInCurrentCycle.size >= allSampleIds.size) {
+        usedInCurrentCycle.clear();
+        categoryQueues.clear();
       }
     }
 
-    return function pick(avoidSampleId) {
-      if (!source.length) return null;
-      if (!queue.length) refill(avoidSampleId);
-      if (queue.length > 1 && queue[0]?.sample_id === avoidSampleId) {
-        const swapIndex = queue.findIndex((item) => item.sample_id !== avoidSampleId);
-        if (swapIndex > 0) [queue[0], queue[swapIndex]] = [queue[swapIndex], queue[0]];
+    function refillCategory(category) {
+      const source = (categoryMap.get(category) || []).filter((item) => !usedInCurrentCycle.has(item.sample_id));
+      const next = shuffle(source, rng);
+      categoryQueues.set(category, next);
+      return next;
+    }
+
+    function usableQueue(category) {
+      const current = categoryQueues.get(category) || [];
+      const filtered = current.filter((item) => !usedInCurrentCycle.has(item.sample_id));
+      if (filtered.length !== current.length) categoryQueues.set(category, filtered);
+      return filtered.length ? filtered : refillCategory(category);
+    }
+
+    function takeFromCategory(category, avoidSampleId) {
+      const queue = usableQueue(category);
+      if (!queue.length) return null;
+      let index = queue.findIndex((item) => item.sample_id !== avoidSampleId);
+      if (index < 0 && usedInCurrentCycle.size > 0) return null;
+      if (index < 0) index = 0;
+      const [item] = queue.splice(index, 1);
+      categoryQueues.set(category, queue);
+      return item;
+    }
+
+    function takeFromCategories(categories, avoidSampleId) {
+      const orderedCategories = shuffle(categories.filter((category) => categoryMap.has(category)), rng);
+      for (let i = 0; i < orderedCategories.length; i += 1) {
+        const item = takeFromCategory(orderedCategories[i], avoidSampleId);
+        if (item) return item;
       }
-      return queue.shift();
-    };
+      return null;
+    }
+
+    function pick(slot, avoidSampleId) {
+      if (!allAssets.length) return null;
+      resetIfCycleComplete();
+
+      const primaryCategories = slot === 'preferred'
+        ? (preferredCategories.length ? preferredCategories : allCategories)
+        : (otherCategories.length ? otherCategories : allCategories);
+      const fallbackCategories = allCategories.filter((category) => !primaryCategories.includes(category));
+
+      let item = takeFromCategories(primaryCategories, avoidSampleId)
+        || takeFromCategories(fallbackCategories, avoidSampleId);
+
+      if (!item && usedInCurrentCycle.size > 0) {
+        usedInCurrentCycle.clear();
+        categoryQueues.clear();
+        item = takeFromCategories(primaryCategories, avoidSampleId)
+          || takeFromCategories(fallbackCategories, avoidSampleId)
+          || takeFromCategories(allCategories, null);
+      }
+
+      if (!item) item = takeFromCategories(allCategories, null);
+      if (item) usedInCurrentCycle.add(item.sample_id);
+      return item;
+    }
+
+    return { pick };
   }
 
   function reduceAdjacentRepeats(sequence) {
@@ -75,18 +142,14 @@
     const ratio = Number(options.preferredRatio ?? 0.7);
     const rng = createRng(options.seed || 'session');
     const preferred = assets.filter((item) => selected.has(item.primary_category));
-    const other = assets.filter((item) => !selected.has(item.primary_category));
     const preferredCount = Math.round(length * ratio);
-    const slots = buildSlotTypes(length, preferredCount, rng);
-    const pickPreferred = createCyclingPicker(preferred.length ? preferred : assets, rng);
-    const pickOther = createCyclingPicker(other.length ? other : assets, rng);
+    const slots = buildSlotTypes(length, preferred.length ? preferredCount : 0, rng);
+    const picker = createNonRepeatingPicker(assets, Array.from(selected), rng);
     const sequence = [];
 
     slots.forEach((slot) => {
       const avoidSampleId = sequence[sequence.length - 1]?.sample_id;
-      const picker = slot === 'preferred' ? pickPreferred : pickOther;
-      const fallbackPicker = slot === 'preferred' ? pickOther : pickPreferred;
-      const item = picker(avoidSampleId) || fallbackPicker(avoidSampleId);
+      const item = picker.pick(slot, avoidSampleId);
       if (item) sequence.push({ ...item, matched_preference: selected.has(item.primary_category) });
     });
 
