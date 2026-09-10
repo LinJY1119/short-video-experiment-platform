@@ -808,8 +808,8 @@ function startFeed() {
   function showQuestionnaireReminder() {
     exitCard.innerHTML = `
       <h2>观看提示</h2>
-      <p>感谢观看视频，您现在需要去见数继续完成问卷。完成后返回本页面，点击下方按钮继续观看。</p>
-      <button type="button" class="card-btn card-btn--primary" id="questionnaireDoneBtn"><span>完成后继续观看</span></button>
+      <p>感谢观看视频，您现在需要去见数继续完成问卷。完成问卷后可返回本界面，并点击下方按钮继续观看短视频。</p>
+      <button type="button" class="card-btn card-btn--primary" id="questionnaireDoneBtn"><span>我已完成问卷，继续观看</span></button>
     `;
     exitLayer.classList.add('is-open');
     document.getElementById('questionnaireDoneBtn').addEventListener('click', () => {
