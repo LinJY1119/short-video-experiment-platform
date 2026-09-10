@@ -64,7 +64,6 @@
 
   function isTrackingMode(params) {
     const study = text(params?.get('study')).toLowerCase();
-    const condition = text(params?.get('condition') || 'g1').toLowerCase();
     return params?.get('tracking') === '1'
       || study === '3';
   }
