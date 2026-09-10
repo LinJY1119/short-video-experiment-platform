@@ -207,6 +207,17 @@ a { color: inherit; }
 
 .entry-card h1 { margin: 0 0 10px; font-size: 28px; }
 .entry-card p { color: var(--muted); line-height: 1.8; }
+.entry-instruction {
+  margin: 12px 0 16px;
+  padding: 14px 16px;
+  border-left: 3px solid var(--brand);
+  border-radius: 10px;
+  background: rgba(254, 44, 85, .06);
+}
+.entry-instruction strong {
+  color: var(--brand);
+  font-weight: 700;
+}
 
 .participant-entry-card {
   min-height: min(720px, calc(100vh - 132px));
@@ -223,12 +234,174 @@ a { color: inherit; }
 .form-row input {
   width: 100%;
   min-height: 44px;
+  margin-top: 8px;
   border-radius: 12px;
   border: 1px solid var(--line);
   background: #fff;
   color: var(--text);
   padding: 0 12px;
   font-size: 15px;
+}
+
+.form-help {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.tracking-dashboard-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tracking-dashboard-head h1 {
+  margin-top: 6px;
+}
+
+.tracking-dashboard-head small,
+.tracking-day-chip,
+.tracking-slot small,
+.tracking-final-code small {
+  color: var(--brand);
+  font-size: 12px;
+}
+
+.tracking-progress {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 18px 0;
+}
+
+.tracking-day-chip {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tracking-day-chip.is-current {
+  border-color: rgba(254, 44, 85, .45);
+  color: var(--brand);
+}
+
+.tracking-day-chip.is-complete {
+  background: rgba(31, 157, 114, .1);
+  border-color: rgba(31, 157, 114, .3);
+  color: var(--ok);
+}
+
+.tracking-notice,
+.tracking-questionnaire-status,
+.tracking-final-code {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 198, 77, .12);
+  border: 1px solid rgba(255, 198, 77, .22);
+  line-height: 1.6;
+}
+
+.tracking-notice span,
+.tracking-questionnaire-status span,
+.tracking-final-code span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tracking-slots {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.tracking-slot {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.tracking-slot div {
+  display: grid;
+  gap: 2px;
+}
+
+.tracking-slot strong {
+  font-size: 17px;
+}
+
+.tracking-slot-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tracking-slot.is-complete {
+  border-color: rgba(31, 157, 114, .3);
+  background: rgba(31, 157, 114, .06);
+}
+
+.tracking-slot .btn {
+  min-height: 38px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.tracking-questionnaire-status.is-complete {
+  background: rgba(31, 157, 114, .08);
+  border-color: rgba(31, 157, 114, .28);
+}
+
+.tracking-final-code {
+  margin-top: 16px;
+  background: #fff;
+  border-color: rgba(254, 44, 85, .3);
+}
+
+.tracking-final-code strong {
+  font-size: 25px;
+  letter-spacing: .12em;
+}
+
+.tracking-footnote {
+  margin-top: 16px;
+  font-size: 12px;
+}
+
+.tracking-admin-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 14px 0;
+}
+
+.tracking-followup-btn {
+  min-height: 32px;
+  margin-top: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.admin-flag {
+  display: inline-block;
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: rgba(200, 138, 0, .12);
+  color: #8c6200;
+  font-size: 12px;
 }
 
 .category-grid {
@@ -364,6 +537,20 @@ a { color: inherit; }
   }
 
   .side-summary { position: static; }
+
+  .tracking-slot {
+    grid-template-columns: 1fr auto;
+  }
+
+  .tracking-slot-status {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .tracking-slot .btn {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
 }
 
 @media (max-width: 520px) {

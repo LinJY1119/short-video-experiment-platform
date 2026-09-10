@@ -29,6 +29,7 @@ const condition = storedCondition
 const fallbackCategories = sessionMeta?.selectedCategories || ['life_record'];
 const participantName = sessionMeta?.participantName || params.get('name') || '';
 const returnUrl = sessionMeta?.returnUrl || params.get('returnUrl') || '';
+const isTrackingRun = Boolean(sessionMeta?.participantId && sessionMeta?.trackingRunId);
 const feed = storedFeed
   ? JSON.parse(storedFeed)
   : window.Recommendation.buildRecommendedFeed({
@@ -40,6 +41,13 @@ const feed = storedFeed
     });
 
 const TIME_CAP_MS = Number(params.get('cap') || condition?.browsing?.maxDurationSec || 0) * 1000;
+const TRACKING_TIME_CAP_MS = isTrackingRun
+  ? Number(params.get('cap') || condition?.browsing?.trackingDurationSec || condition?.browsing?.maxDurationSec || 0) * 1000
+  : TIME_CAP_MS;
+const TWO_PHASE = !isTrackingRun && condition?.browsing?.twoPhase === true;
+const PHASE_DURATION_MS = Number(
+  params.get('phaseCap') || condition?.browsing?.phaseDurationSec || condition?.browsing?.maxDurationSec || 0
+) * 1000;
 const EXIT_LOCKED_STUDIES = new Set(['1a', '1b', '2a']);
 const EXIT_UNLOCK_MS = EXIT_LOCKED_STUDIES.has(condition?.study)
   ? TIME_CAP_MS
@@ -66,6 +74,7 @@ let startedAt = 0;
 let startEpoch = 0;
 let accumulatedFeedMs = 0;
 let feedTimerRunning = false;
+let activePhase = TWO_PHASE ? 'phase_1' : 'single_phase';
 
 function resetFeedTimer() {
   accumulatedFeedMs = 0;
@@ -94,6 +103,7 @@ function logEvent(type, detail = {}) {
     type,
     timestamp: Date.now(),
     elapsed_ms: startedAt ? nowMs() : 0,
+    phase: detail.phase ?? activePhase,
     stage: 'content',
     target: detail.target ?? null,
     x: detail.x ?? null,
@@ -161,7 +171,8 @@ function showIntro() {
       <li>在屏幕中间<strong>上滑</strong>切换到下一条，<strong>下滑</strong>回到上一条。</li>
       <li>按住屏幕<strong>左侧或右侧边缘</strong>为 2 倍速播放，松开恢复正常速度。</li>
       <li>轻点屏幕中间可开启或关闭声音。</li>
-      <li>请持续浏览视频，达到规定时间后页面会显示下一步提示；未到时间时如选择继续观看，将直接返回视频流。</li>
+      <li>请持续浏览视频，达到当前阶段规定时间后页面会显示下一步提示；未达到规定时间前点击退出不会结束实验。</li>
+      <li>第一阶段结束后，如选择继续观看，需要先返回见数完成问卷，再回到本页面点击按钮进入下一阶段。</li>
     </ul>
     <p>请按自己平时的习惯自由浏览。</p>
     <div class="stage-actions"><button type="button" class="runner-btn" id="startFeedBtn">开始浏览</button></div>
@@ -304,6 +315,7 @@ function startFeed() {
 
   const state = {
     index: 0,
+    exitDecisionIndex: 0,
     enterAt: performance.now(),
     lastSwipeAt: 0,
     swipeNext: 0,
@@ -328,8 +340,25 @@ function startFeed() {
     capTimer: null,
     visualTimer: null,
     clockTimer: null,
+    phaseOnePromptAtMs: null,
+    phaseOneChoice: null,
+    phaseTwoStartedAtMs: null,
+    phaseTwoStartedEpochMs: null,
+    phaseTwoPromptAtMs: null,
+    phaseTwoChoice: null,
+    questionnaireReminderShownAtMs: null,
+    questionnaireReminderShownEpochMs: null,
+    questionnaireReturnedAtMs: null,
+    questionnaireReturnedEpochMs: null,
+    manualExitAfterPhaseOneAtMs: null,
+    finalExitPhase: null,
+    lastExitDecisionId: null,
+    lastExitDecisionRecord: null,
+    completionCode: null,
+    completionCodePromise: null,
     visualApplied: false,
     timeCapPrompted: false,
+    trackingCapReached: false,
     finished: false,
   };
 
@@ -396,9 +425,14 @@ function startFeed() {
     logEvent('visual-treatment-applied', { target: 'feed', value: String(condition.visualTreatment.saturationPercent) });
   }
 
+  function phaseCapMs() {
+    return TWO_PHASE ? PHASE_DURATION_MS : TRACKING_TIME_CAP_MS;
+  }
+
   function scheduleCapTimer() {
-    if (state.finished || state.capTimer || state.timeCapPrompted || TIME_CAP_MS <= 0) return;
-    const delay = Math.max(0, TIME_CAP_MS - nowMs());
+    if (state.finished || state.capTimer || phaseCapMs() <= 0) return;
+    if (!TWO_PHASE && state.timeCapPrompted) return;
+    const delay = Math.max(0, phaseCapMs() - (TWO_PHASE ? (activePhase === 'phase_1' ? nowMs() : nowMs() - state.phaseTwoStartedAtMs) : nowMs()));
     state.capTimer = window.setTimeout(() => {
       state.capTimer = null;
       openExit(null, 'time_cap');
@@ -662,11 +696,160 @@ function startFeed() {
     logEvent('tap', { target: 'action_search', x: Math.round(e.clientX), y: Math.round(e.clientY), value: feed[state.index].sample_id });
   });
 
+  function exitFeedbackHTML() {
+    if (!condition.exitFeedback?.enabled) return '';
+    const rows = [];
+    if (condition.exitFeedback.showWatchTime) {
+      rows.push(`<p><strong>本次有效观看时长：</strong>${formatDuration(nowMs())}</p>`);
+    }
+    if (condition.exitFeedback.showViewedCount) {
+      rows.push(`<p><strong>已浏览视频条数：</strong>${state.visited.size} 条</p>`);
+    }
+    if (!rows.length) return '';
+    return `<div class="exit-feedback">${rows.join('')}</div>`;
+  }
+
+  async function ensureCompletionCode() {
+    if (state.completionCode) return state.completionCode;
+    if (state.completionCodePromise) return state.completionCodePromise;
+
+    state.completionCodePromise = (async () => {
+      const code = `C-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+      await Promise.all([
+        window.ExperimentStore.upsert('completion_records', {
+          id: `complete_${sessionId}`,
+          sessionId,
+          participantName,
+          study: condition.study,
+          condition: condition.condition,
+          completed: true,
+          completionCode: code,
+          returnUrl,
+          redirectedAt: null,
+        }),
+        window.ExperimentStore.upsert('participant_sessions', {
+          id: sessionId,
+          participantName,
+          returnUrl,
+          selectedCategories: fallbackCategories,
+          status: 'phase_1_completed',
+          completionCode: code,
+          participantId: sessionMeta?.participantId || null,
+          trackingDay: sessionMeta?.trackingDay || null,
+          sessionSlot: sessionMeta?.sessionSlot || null,
+        }),
+      ]);
+      state.completionCode = code;
+      return code;
+    })();
+
+    try {
+      return await state.completionCodePromise;
+    } finally {
+      state.completionCodePromise = null;
+    }
+  }
+
+  function recordExitDecision(choice, reason) {
+    const openedAtMs = state.exitPromptElapsedMs ?? nowMs();
+    const decidedAtMs = nowMs();
+    const record = {
+      id: `exit_${sessionId}_${state.exitDecisionIndex + 1}`,
+      sessionId,
+      participantName,
+      study: condition.study,
+      condition: condition.condition,
+      promptIndex: state.exitDecisionIndex + 1,
+      phase: activePhase,
+      reason,
+      openedAtMs,
+      openedEpochMs: state.exitPromptEpochMs ?? Date.now(),
+      choice,
+      decidedAtMs,
+      decidedEpochMs: Date.now(),
+      decisionLatencyMs: Math.max(0, decidedAtMs - openedAtMs),
+      questionnaireReminderShown: reason === 'time_cap' && choice === 'continue',
+      questionnaireReturned: false,
+    };
+    state.exitDecisionIndex += 1;
+    state.lastExitDecisionId = record.id;
+    state.lastExitDecisionRecord = record;
+    const writePromise = window.ExperimentStore.upsert('feed_exit_decisions', record);
+    logEvent('exit-choice', { target: reason, value: choice, duration: record.decisionLatencyMs });
+    return writePromise;
+  }
+
+  async function confirmExit() {
+    const fromTimeCap = state.exitReason === 'time_cap';
+    if (fromTimeCap) {
+      state.timeCapChoice = activePhase === 'phase_1' ? 'phase_1_exit' : 'phase_2_exit';
+    }
+    await recordExitDecision('exit', fromTimeCap ? 'time_cap' : 'manual_exit');
+    if (fromTimeCap && activePhase === 'phase_2') {
+      void finish('phase_2_time_cap_exit', { showCompletionCode: false });
+      return;
+    }
+    if (fromTimeCap && activePhase === 'phase_1') {
+      await ensureCompletionCode();
+    }
+    void finish(fromTimeCap
+      ? 'phase_1_time_cap_exit'
+      : 'manual_exit', { showCompletionCode: true });
+  }
+
+  function bindHoldExit(confirmBtn) {
+    const required = condition.exitHoldConfig?.requiredMs || 1500;
+    const fill = confirmBtn.querySelector('#exitHoldProgress');
+    let start = null;
+    let raf = null;
+
+    function clearHold() {
+      start = null;
+      if (raf) cancelAnimationFrame(raf);
+      raf = null;
+      if (fill) fill.style.width = '0%';
+    }
+
+    function tick() {
+      if (start === null) return;
+      const elapsed = performance.now() - start;
+      if (fill) fill.style.width = `${Math.min(100, (elapsed / required) * 100)}%`;
+      if (elapsed >= required) {
+        clearHold();
+        confirmExit();
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    }
+
+    confirmBtn.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      start = performance.now();
+      logEvent('hold-exit-start', { target: 'confirm_exit_button' });
+      tick();
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((eventName) => {
+      confirmBtn.addEventListener(eventName, () => {
+        if (start !== null) logEvent('hold-exit-cancelled', {
+          target: 'confirm_exit_button',
+          duration: Math.round(performance.now() - start),
+        });
+        clearHold();
+      });
+    });
+  }
+
   function renderExitCard() {
     const message = condition.exitNudge.messageTemplate || '感谢观看视频，您现在需要去见数继续完成问卷。';
+    const confirmText = escapeHtml(condition.exitNudge.confirmText || '确认退出');
     const cancelText = escapeHtml(condition.exitNudge.cancelText || '继续观看');
-    const secondary = condition.continueMode === 'hold_to_continue'
-      ? `<button type="button" class="card-btn card-btn--secondary" id="cancelExitBtn"><span class="card-btn__progress" id="holdProgress"></span><span>${cancelText}</span></button>`
+    const primary = condition.exitMode === 'hold_to_exit'
+      ? `<button type="button" class="card-btn card-btn--primary" id="confirmExitBtn"><span class="card-btn__progress" id="exitHoldProgress"></span><span>${escapeHtml(condition.exitHoldConfig?.progressText || confirmText)}</span></button>`
+      : `<button type="button" class="card-btn card-btn--primary" id="confirmExitBtn"><span>${confirmText}</span></button>`;
+    const secondary = isTrackingRun && state.trackingCapReached
+      ? `<p class="exit-lock-note">本次已达到10分钟，请长按上方按钮结束本次任务。</p>`
+      : condition.continueMode === 'hold_to_continue'
+        ? `<button type="button" class="card-btn card-btn--secondary" id="cancelExitBtn"><span class="card-btn__progress" id="holdProgress"></span><span>${cancelText}</span></button>`
       : condition.continueMode === 'swipe_to_continue'
         ? `<div class="swipe-continue-slider" id="continueSlider">
             <div class="swipe-continue-slider__label">左右拖动滑块继续观看</div>
@@ -679,16 +862,15 @@ function startFeed() {
     exitCard.innerHTML = `
       <h2>${escapeHtml(condition.exitNudge.title || '观看提示')}</h2>
       <p>${escapeHtml(message)}</p>
-      <button type="button" class="card-btn card-btn--primary" id="confirmExitBtn"><span>${escapeHtml(condition.exitNudge.confirmText || '确认退出')}</span></button>
+      ${exitFeedbackHTML()}
+      ${primary}
       ${secondary}
     `;
 
-    exitCard.querySelector('#confirmExitBtn').addEventListener('click', () => {
-      const fromTimeCap = state.exitReason === 'time_cap';
-      if (fromTimeCap) state.timeCapChoice = 'confirm_exit_button';
-      logEvent('exit-confirm', { target: 'confirm_exit_button', value: feed[state.index].sample_id });
-      void finish(fromTimeCap ? 'time_cap_confirm_exit' : 'confirm_exit_button');
-    });
+    const confirmBtn = exitCard.querySelector('#confirmExitBtn');
+    if (isTrackingRun && state.trackingCapReached && confirmBtn) bindHoldExit(confirmBtn);
+    else if (condition.exitMode === 'hold_to_exit' && confirmBtn) bindHoldExit(confirmBtn);
+    else if (confirmBtn) confirmBtn.addEventListener('click', confirmExit);
     const cancelBtn = exitCard.querySelector('#cancelExitBtn');
     const continueSlider = exitCard.querySelector('#continueSlider');
     if (condition.continueMode === 'hold_to_continue' && cancelBtn) bindHoldContinue(cancelBtn);
@@ -805,20 +987,80 @@ function startFeed() {
     });
   }
 
+  function bindCopyCodeButton(buttonId, codeId, feedbackId) {
+    const copyBtn = document.getElementById(buttonId);
+    const codeText = document.getElementById(codeId);
+    const feedback = document.getElementById(feedbackId);
+    if (!copyBtn || !codeText || !feedback) return;
+    copyBtn.addEventListener('click', async () => {
+      const code = codeText.textContent || '';
+      try {
+        await navigator.clipboard.writeText(code);
+        feedback.textContent = '已复制完成码，请返回见数填写。';
+      } catch (error) {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(codeText);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        feedback.textContent = '请手动长按复制完成码，再返回见数填写。';
+      }
+    });
+  }
+
   function showQuestionnaireReminder() {
+    state.questionnaireReminderShownAtMs = nowMs();
+    state.questionnaireReminderShownEpochMs = Date.now();
+    logEvent('questionnaire-reminder-shown', { target: 'questionnaire_reminder', value: 'phase_1' });
     exitCard.innerHTML = `
-      <h2>观看提示</h2>
-      <p>感谢观看视频，您现在需要去见数继续完成问卷。完成问卷后可返回本界面，并点击下方按钮继续观看短视频。</p>
+      <h2>第一阶段已结束</h2>
+      <p>感谢观看视频。请先复制完成码，前往见数完成问卷；完成后返回本页面，再继续第二阶段。</p>
+      <div class="completion-code-box">
+        <span class="completion-code-label">完成码</span>
+        <strong id="phaseOneCompletionCodeText">${escapeHtml(state.completionCode || '')}</strong>
+      </div>
+      <button type="button" class="card-btn card-btn--secondary" id="phaseOneCopyCodeBtn"><span>点击复制完成码</span></button>
+      <p class="copy-feedback" id="phaseOneCopyFeedback" aria-live="polite"></p>
       <button type="button" class="card-btn card-btn--primary" id="questionnaireDoneBtn"><span>我已完成问卷，继续观看</span></button>
     `;
     exitLayer.classList.add('is-open');
-    document.getElementById('questionnaireDoneBtn').addEventListener('click', () => {
+    bindCopyCodeButton('phaseOneCopyCodeBtn', 'phaseOneCompletionCodeText', 'phaseOneCopyFeedback');
+    document.getElementById('questionnaireDoneBtn').addEventListener('click', async () => {
+      state.questionnaireReturnedAtMs = nowMs();
+      state.questionnaireReturnedEpochMs = Date.now();
+      logEvent('questionnaire-returned', { target: 'questionnaire_done_button', value: 'phase_1' });
+      if (state.lastExitDecisionRecord) {
+        void window.ExperimentStore.upsert('feed_exit_decisions', {
+          ...state.lastExitDecisionRecord,
+          questionnaireReturned: true,
+          questionnaireReturnedAtMs: state.questionnaireReturnedAtMs,
+          questionnaireReturnedEpochMs: state.questionnaireReturnedEpochMs,
+        });
+      }
+      if (TWO_PHASE) {
+        activePhase = 'phase_2';
+        state.phaseTwoStartedAtMs = nowMs();
+        state.phaseTwoStartedEpochMs = Date.now();
+        state.phaseTwoPromptAtMs = null;
+        state.phaseTwoChoice = null;
+        logEvent('phase-start', { target: 'phase_2' });
+      }
       exitLayer.classList.remove('is-open');
       state.exitPromptShownAt = null;
+      state.exitPromptElapsedMs = null;
+      state.exitPromptEpochMs = null;
       state.exitReason = null;
+      state.timeCapPrompted = false;
       resumeViewingAfterOverlay();
       renderDebug('resume_after_questionnaire');
     });
+  }
+
+  function showExperimentEnded() {
+    renderPlainStage(`
+      <h1>实验已结束</h1>
+      <p>感谢您的参与，实验已结束。</p>
+    `);
   }
 
   function openExit(e, reason = 'manual') {
@@ -835,28 +1077,53 @@ function startFeed() {
       return;
     }
     state.exitOpened += 1;
-    if (reason === 'time_cap') state.timeCapPrompted = true;
+    if (reason === 'time_cap') {
+      state.timeCapPrompted = true;
+      if (isTrackingRun) state.trackingCapReached = true;
+      if (activePhase === 'phase_1') state.phaseOnePromptAtMs = nowMs();
+      if (activePhase === 'phase_2') state.phaseTwoPromptAtMs = nowMs();
+    }
     state.exitPromptShownAt = performance.now();
+    state.exitPromptElapsedMs = nowMs();
+    state.exitPromptEpochMs = Date.now();
     state.exitReason = reason;
+    if (reason === 'manual') state.manualExitAfterPhaseOneAtMs = nowMs();
     if (state.firstExitAttemptMs === null) state.firstExitAttemptMs = nowMs();
     pauseViewingForOverlay();
     renderExitCard();
     exitLayer.classList.add('is-open');
-    logEvent('exit-prompt-open', { target: reason === 'time_cap' ? 'time_cap' : 'exit_button', x: e ? Math.round(e.clientX) : null, y: e ? Math.round(e.clientY) : null, value: feed[state.index].sample_id });
+    logEvent(reason === 'time_cap' ? 'time-cap-prompt-open' : 'manual-exit-prompt-open', {
+      target: reason === 'time_cap' ? 'time_cap' : 'exit_button',
+      x: e ? Math.round(e.clientX) : null,
+      y: e ? Math.round(e.clientY) : null,
+      value: feed[state.index].sample_id,
+    });
     renderDebug('open_exit');
   }
 
-  function cancelExit(method = 'cancel_exit_button') {
+  async function cancelExit(method = 'cancel_exit_button') {
     state.cancelCount += 1;
-    logEvent('exit-prompt-cancel', { target: method, duration: Math.round(performance.now() - state.exitPromptShownAt), value: feed[state.index].sample_id });
     const exitReason = state.exitReason;
+    const choice = 'continue';
+    if (activePhase === 'phase_1') state.phaseOneChoice = choice;
+    if (activePhase === 'phase_2') state.phaseTwoChoice = choice;
+    await recordExitDecision(choice, exitReason === 'time_cap' ? 'time_cap' : 'manual_exit');
     state.exitPromptShownAt = null;
+    state.exitPromptElapsedMs = null;
+    state.exitPromptEpochMs = null;
     state.exitReason = null;
-    if (exitReason === 'time_cap') {
-      state.timeCapChoice = 'cancel_exit_button';
-      logEvent('time-cap-choice', { target: 'cancel_exit_button', value: feed[state.index].sample_id });
+    if (exitReason === 'time_cap' && activePhase === 'phase_1') {
+      state.timeCapChoice = 'phase_1_continue';
+      await ensureCompletionCode();
       showQuestionnaireReminder();
-      renderDebug('time_cap_resume_posttest');
+      renderDebug('phase_1_questionnaire');
+      return;
+    }
+    if (exitReason === 'time_cap' && activePhase === 'phase_2') {
+      state.timeCapChoice = 'phase_2_continue';
+      logEvent('phase-2-ended', { target: 'experiment_end' });
+      void finish('phase_2_time_cap_continue', { showCompletionCode: false });
+      renderDebug('phase_2_ended');
       return;
     }
     exitLayer.classList.remove('is-open');
@@ -864,8 +1131,20 @@ function startFeed() {
     renderDebug('resume_after_manual_exit_cancel');
   }
 
-  async function finish(method) {
+  async function finish(method, options = {}) {
     if (state.finished) return;
+    state.finalExitPhase = activePhase;
+    if (activePhase === 'phase_1') state.phaseOneChoice = 'exit';
+    if (activePhase === 'phase_2' && method !== 'phase_2_time_cap_continue') state.phaseTwoChoice = 'exit';
+    const decisionLatency = state.exitPromptElapsedMs == null
+      ? (state.lastExitDecisionRecord?.decisionLatencyMs ?? null)
+      : Math.max(0, nowMs() - state.exitPromptElapsedMs);
+    const exitEpochMs = Date.now();
+    const totalFeedMs = nowMs();
+    state.exitPromptShownAt = null;
+    state.exitPromptElapsedMs = null;
+    state.exitPromptEpochMs = null;
+    state.exitReason = null;
     state.finished = true;
     clearPendingTimers();
     stopStatusBarClock();
@@ -881,9 +1160,6 @@ function startFeed() {
     pauseFeedTimer();
     videos.forEach((v) => v.pause());
     speedBanner.classList.remove('is-on');
-    const decisionLatency = state.exitPromptShownAt ? Math.round(performance.now() - state.exitPromptShownAt) : null;
-    const exitEpochMs = Date.now();
-    const totalFeedMs = nowMs();
     logEvent('feed-finish', { target: method, value: feed[state.index].sample_id });
 
     const summary = {
@@ -893,6 +1169,18 @@ function startFeed() {
       condition: condition.condition,
       exit_method: method,
       time_cap_choice: state.timeCapChoice ?? '',
+      first_phase_choice: state.phaseOneChoice ?? '',
+      second_phase_choice: state.phaseTwoChoice ?? '',
+      final_exit_phase: state.finalExitPhase ?? activePhase,
+      first_phase_prompt_at_ms: state.phaseOnePromptAtMs ?? '',
+      second_phase_started_at_ms: state.phaseTwoStartedAtMs ?? '',
+      second_phase_prompt_at_ms: state.phaseTwoPromptAtMs ?? '',
+      questionnaire_reminder_shown_at_ms: state.questionnaireReminderShownAtMs ?? '',
+      questionnaire_returned_at_ms: state.questionnaireReturnedAtMs ?? '',
+      first_phase_watch_ms: state.phaseOnePromptAtMs ?? (activePhase === 'phase_1' ? totalFeedMs : PHASE_DURATION_MS),
+      second_phase_watch_ms: activePhase === 'phase_2' && state.phaseTwoStartedAtMs !== null
+        ? Math.max(0, totalFeedMs - state.phaseTwoStartedAtMs)
+        : '',
       start_epoch_ms: startEpoch,
       exit_epoch_ms: exitEpochMs,
       videos_viewed: state.visited.size,
@@ -915,9 +1203,16 @@ function startFeed() {
       watch_ms_after_first_exit_attempt: state.firstExitAttemptMs === null ? '' : nowMs() - state.firstExitAttemptMs,
       dwell_ms_per_slide: state.dwellMs.join('|'),
       event_count: events.length,
+      questionnaire_reminder_count: events.filter((event) => event.type === 'questionnaire-reminder-shown').length,
+      questionnaire_return_count: events.filter((event) => event.type === 'questionnaire-returned').length,
+      second_phase_manual_exit_count: activePhase === 'phase_2' && method === 'manual_exit' ? 1 : 0,
     };
 
-    const completionCode = `C-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const shouldShowCompletionCode = options.showCompletionCode !== false;
+    const completionCode = shouldShowCompletionCode
+      ? (state.completionCode || `C-${Math.random().toString(36).slice(2, 8).toUpperCase()}`)
+      : (state.completionCode || '');
+    state.completionCode = completionCode || state.completionCode;
     await Promise.all([
       window.ExperimentStore.upsert('feed_summaries', {
         id: `summary_${sessionId}`,
@@ -937,17 +1232,19 @@ function startFeed() {
             events,
           })
         : Promise.resolve(),
-      window.ExperimentStore.upsert('completion_records', {
-        id: `complete_${sessionId}`,
-        sessionId,
-        participantName,
-        study: condition.study,
-        condition: condition.condition,
-        completed: true,
-        completionCode,
-        returnUrl,
-        redirectedAt: null,
-      }),
+      shouldShowCompletionCode
+        ? window.ExperimentStore.upsert('completion_records', {
+            id: `complete_${sessionId}`,
+            sessionId,
+            participantName,
+            study: condition.study,
+            condition: condition.condition,
+            completed: true,
+            completionCode,
+            returnUrl,
+            redirectedAt: null,
+          })
+        : Promise.resolve(),
       window.ExperimentStore.upsert('participant_sessions', {
         id: sessionId,
         participantName,
@@ -956,10 +1253,34 @@ function startFeed() {
         status: 'feed_completed',
         feedStartedAt: startEpoch,
         completedAt: exitEpochMs,
-        completionCode,
+        ...(shouldShowCompletionCode ? { completionCode } : {}),
+        participantId: sessionMeta?.participantId || null,
+        trackingDay: sessionMeta?.trackingDay || null,
+        sessionSlot: sessionMeta?.sessionSlot || null,
       }),
+      isTrackingRun
+        ? window.ExperimentStore.upsert('tracking_runs', {
+            id: sessionMeta.trackingRunId,
+            participantId: sessionMeta.participantId,
+            participantName,
+            study: condition.study,
+            condition: condition.condition,
+            sessionId,
+            trackingDay: sessionMeta.trackingDay,
+            sessionSlot: sessionMeta.sessionSlot,
+            targetDate: sessionMeta.targetDate,
+            targetTime: sessionMeta.targetTime,
+            lateAfterSlot: sessionMeta.lateAfterSlot,
+            status: 'completed',
+            startedAt: sessionMeta.startedAt || startEpoch,
+            completedAt: exitEpochMs,
+            ...(shouldShowCompletionCode ? { taskCompletionCode: completionCode } : {}),
+            summaryId: `summary_${sessionId}`,
+          })
+        : Promise.resolve(),
     ]);
-    showOutro(summary, completionCode);
+    if (shouldShowCompletionCode) showOutro(summary, completionCode);
+    else showExperimentEnded();
   }
 
   function renderDebug(action) {
@@ -987,19 +1308,24 @@ function startFeed() {
 }
 
 function showOutro(summary, completionCode) {
+  const nextUrl = isTrackingRun ? (sessionMeta?.trackingReturn || '') : '';
   renderPlainStage(`
     <h1>感谢观看视频</h1>
-    <p>请复制下方完成码，返回见数继续完成问卷并填写。</p>
+    <p>${isTrackingRun ? '本次任务已完成。请复制本次任务完成码，返回见数填写；完成后可从同一入口继续下一时段。' : '本次任务已完成。请复制本次任务完成码，返回见数填写。'}</p>
     <div class="completion-code-box">
       <span class="completion-code-label">完成码</span>
       <strong id="completionCodeText">${escapeHtml(completionCode || '')}</strong>
     </div>
     <div class="stage-actions"><button type="button" class="runner-btn" id="copyCodeBtn">点击复制完成码</button></div>
+    ${nextUrl ? '<div class="stage-actions"><button type="button" class="runner-btn" id="returnTrackingBtn">返回追踪进度</button></div>' : ''}
     <p class="copy-feedback" id="copyFeedback" aria-live="polite"></p>
   `);
   const copyBtn = document.getElementById('copyCodeBtn');
   const codeText = document.getElementById('completionCodeText');
   const feedback = document.getElementById('copyFeedback');
+  document.getElementById('returnTrackingBtn')?.addEventListener('click', () => {
+    window.location.href = nextUrl;
+  });
   copyBtn.addEventListener('click', async () => {
     const code = codeText.textContent || '';
     try {
