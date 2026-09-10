@@ -101,13 +101,13 @@ COS 上传完成后，修改：
 src/config/videos.js
 ```
 
-中的：
+中的素材数组和远程地址：
 
 ```js
 const remoteBase = 'https://media.cloud-bridge.cn/stimuli/'
 ```
 
-并在非 localhost 环境自动使用远程素材地址。也可以临时通过 URL 参数覆盖：
+并在非 localhost 环境自动使用远程素材地址。当前 `VIDEO_ASSETS` 共包含 100 条启用素材，5 个内容类别各 20 条；素材已剔除广告、商品推广、不健康、露骨及擦边内容。新 session 会从当前启用素材池中按被试偏好类别生成推荐序列。也可以临时通过 URL 参数覆盖：
 
 ```text
 ?media=https://media.cloud-bridge.cn/stimuli/
@@ -146,3 +146,13 @@ cloudbase/migrations/20260909120000_create_short_video_experiment_tables.sql  Po
 4. 打开 `admin.html`，点击“写入测试记录”，确认页面显示 `lastWriteSource: cloudbase`。
 5. 跑完整实验流程：入口页提交、运行页完成、导出 CSV。
 6. 如果写入回退到本地，优先查看 `lastWriteError`，再排查表结构、权限或 SDK 初始化。
+
+
+## 新增素材同步
+
+新增素材时需要同时更新两个位置：
+
+1. `cos-upload-package/stimuli/video/` 与 `cos-upload-package/stimuli/cover/`：上传包中的 MP4/JPG。
+2. `src/config/videos.js`：前端 `window.VIDEO_ASSETS` 的元数据和文件名。
+
+当前配置共 100 条启用素材，5 个内容类别各 20 条。入口页创建新 session 时，推荐算法会从当前启用素材中按被试偏好类别生成序列；已经创建并保存推荐序列的旧 session 不会被改写。
