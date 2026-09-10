@@ -107,12 +107,14 @@
     condition('1a', 'g1', '研究1A-G1：无反馈控制组', {
       browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: basicExit,
-      notes: '对照组沿用研究1A-G1设置。',
+      exitFeedback: { enabled: false, showWatchTime: false, showViewedCount: false },
+      notes: '与研究1A-G2使用相同的两阶段、时长和退出流程，仅不显示反馈信息。',
     }),
     condition('1a', 'g2', '研究1A-G2：信息反馈组', {
       browsing: { twoPhase: true, phaseDurationSec: 600 },
       exitNudge: basicExit,
-      notes: '第一阶段与第二阶段各持续10分钟；第一次弹窗后继续观看的被试进入第二阶段。',
+      exitFeedback: { enabled: true, showWatchTime: true, showViewedCount: true },
+      notes: '与研究1A-G1使用相同的两阶段、时长和退出流程，显示已浏览条数与累计观看时长。',
     }),
 
     condition('1b', 'g1', '研究1B-G1：正常色彩组', {
