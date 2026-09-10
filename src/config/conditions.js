@@ -207,7 +207,7 @@
 
     condition('3', 'g1', '研究3-G1：追踪实验组', {
       browsing: { minDurationSec: 600, maxDurationSec: 600, trackingDurationSec: 600, feedLength: 120 },
-      visualTreatment: { grayscale: true, saturationPercent: 65, applyAtSec: 0, applyScope: 'feed' },
+      visualTreatment: { grayscale: true, saturationPercent: 65, brightnessPercent: 100, applyAtSec: 0, applyScope: 'feed' },
       exitFeedback: { enabled: true, showWatchTime: true, showViewedCount: true },
       exitMode: 'hold_to_exit',
       exitHoldConfig: { requiredMs: 5000, progressText: '长按确认退出' },
