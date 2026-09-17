@@ -1363,6 +1363,9 @@
 
   window.ExperimentStore = {
     key: KEY,
+    getCloudBaseApp() {
+      return state.app;
+    },
     get mode() {
       return state.mode;
     },

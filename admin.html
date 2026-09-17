@@ -7,7 +7,24 @@
   <link rel="stylesheet" href="src/styles/site.css" />
 </head>
 <body>
-  <main class="site-shell">
+  <main class="site-shell" id="adminLoginShell">
+    <section class="entry-layout entry-layout--single">
+      <form class="entry-card participant-entry-card" id="adminLoginForm">
+        <h1>管理员登录</h1>
+        <p>请输入管理员密码后进入后台。</p>
+        <div class="form-row">
+          <label for="adminPassword">密码</label>
+          <input id="adminPassword" name="adminPassword" type="password" autocomplete="current-password" required />
+        </div>
+        <div class="notice" id="adminLoginNotice">请输入密码。</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;">
+          <button class="btn btn--primary" type="submit">进入后台</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <main class="site-shell" id="adminShell" hidden>
     <header class="site-topbar">
       <div class="brand-lockup">
         <strong>管理员后台雏形</strong>
@@ -15,6 +32,7 @@
       </div>
       <nav class="nav-links">
         <a href="index.html">实验入口</a>
+        <a href="docs/implementation-plan.md">实施计划</a>
         <button class="btn" id="exportBtn" type="button">导出 CSV</button>
         <button class="btn" id="clearBtn" type="button">清空记录</button>
       </nav>
@@ -89,7 +107,61 @@
   <script src="src/lib/store.js"></script>
   <script src="src/tracking/tracking.js"></script>
   <script>
-    (async () => {
+    const ADMIN_AUTH_FUNCTION = 'adminLogin';
+    const ADMIN_AUTH_SESSION_KEY = 'short_video_admin_authenticated';
+    const adminLoginShell = document.getElementById('adminLoginShell');
+    const adminShell = document.getElementById('adminShell');
+    const adminLoginForm = document.getElementById('adminLoginForm');
+    const adminPasswordInput = document.getElementById('adminPassword');
+    const adminLoginNotice = document.getElementById('adminLoginNotice');
+
+    async function verifyAdminPassword(password) {
+      await window.ExperimentStore.whenReady;
+      const app = window.ExperimentStore.getCloudBaseApp?.();
+      if (!app || typeof app.callFunction !== 'function') {
+        throw new Error('CloudBase 云函数暂不可用，请确认环境配置与 SDK 加载状态。');
+      }
+      const result = await app.callFunction({
+        name: ADMIN_AUTH_FUNCTION,
+        data: { password },
+      });
+      const payload = result && (result.result || result.data || result);
+      if (!payload || payload.ok !== true) {
+        throw new Error(payload?.message || '密码错误，请重新输入。');
+      }
+      return payload;
+    }
+
+    async function showAdminShell() {
+      adminLoginShell.hidden = true;
+      adminShell.hidden = false;
+      await initAdmin();
+    }
+
+    if (window.sessionStorage.getItem(ADMIN_AUTH_SESSION_KEY) === '1') {
+      showAdminShell();
+    }
+
+    adminLoginForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const submitButton = adminLoginForm.querySelector('button[type="submit"]');
+      submitButton.disabled = true;
+      adminLoginNotice.textContent = '正在校验管理员密码……';
+      try {
+        await verifyAdminPassword(adminPasswordInput.value);
+        window.sessionStorage.setItem(ADMIN_AUTH_SESSION_KEY, '1');
+        adminPasswordInput.value = '';
+        await showAdminShell();
+      } catch (error) {
+        adminLoginNotice.textContent = error && error.message ? error.message : '登录失败，请稍后重试。';
+        adminPasswordInput.value = '';
+        adminPasswordInput.focus();
+      } finally {
+        submitButton.disabled = false;
+      }
+    });
+
+    async function initAdmin() {
       await window.ExperimentStore.whenReady;
       const records = await window.ExperimentStore.readAll();
       const stats = document.getElementById('stats');
@@ -342,7 +414,7 @@
         await window.ExperimentStore.clear();
         window.location.reload();
       });
-    })();
+    }
   </script>
 </body>
 </html>
