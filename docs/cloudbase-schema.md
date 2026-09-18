@@ -37,6 +37,7 @@
 ```text
 cloudbase/migrations/20260909120000_create_short_video_experiment_tables.sql
 cloudbase/migrations/20260909220000_add_feed_exit_epoch_ms.sql
+cloudbase/migrations/20260918120000_add_condition_manipulation_fields.sql
 ```
 
 已经创建 7 张表的环境只需执行第二个增量 migration，即可增加 `feed_summaries.exit_epoch_ms`，不会删除已有记录。
@@ -126,6 +127,16 @@ cloudbase/migrations/20260909220000_add_feed_exit_epoch_ms.sql
 - `watch_ms_after_first_exit_attempt bigint`
 - `dwell_ms_per_slide text`
 - `event_count integer`
+- `nominal_saturation_percent integer`（名义饱和度水平，含 100% 对照）
+- `nominal_apply_at_sec integer`（设计上的呈现时间标签）
+- `visual_treatment_applied integer`（是否真的发生过视觉切换，100% 对照为 0）
+- `visual_applied_at_ms bigint`（实际发生视觉切换时的有效浏览时长）
+- `exit_feedback_mode text`（`none` / `time` / `count` / `combined`）
+- `continue_mode text`（`tap_cancel` / `swipe_to_continue` / `hold_to_continue`）
+- `exit_mode text`（`tap_confirm` / `hold_to_exit`）
+- `first_prompt_sec integer`（首次自动弹窗时间点）
+- `final_duration_sec integer`（任务总时长上限）
+- `blocked_exit_attempt_count integer`（解锁前被拦截的手动退出次数）
 - `created_at timestamptz`
 - `updated_at timestamptz`
 

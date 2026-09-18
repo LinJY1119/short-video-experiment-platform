@@ -2,7 +2,7 @@
 
 这是一个静态可运行的第一版原型，用于验证整体结构：
 
-- 一个统一实验站承载 1A、1B、2A、2B 的 20 个实验条件。
+- 一个统一实验站承载 1A、1B、2A、2B、3 的 19 个实验条件。
 - 被试进入后先选择 5 类短视频内容偏好中的 1–3 类。
 - 系统按 70% 偏好类别 + 30% 非偏好类别生成推荐序列；同一轮素材耗尽前避免重复视频，某一类别耗尽后优先补其他未看过类别。
 - 刷视频界面复用 `credamo-jspsych-demo` 的抖音式手机壳 UI 与交互，但当前实现已改为纯前端 JavaScript，不再依赖短视频运行器或 Credamo。
@@ -38,6 +38,38 @@ http://localhost:5173/
 https://experiment.yourdomain.com/entry.html?study=2a&condition=g7&name=张三&source=wjx&returnUrl=https%3A%2F%2Fquestionnaire.example%2Fnext
 ```
 
+## 条件时程与共同基础对照
+
+四个研究的浏览时程由 `src/config/conditions.js` 的 `browsing` 字段显式定义：
+
+| 字段 | 含义 |
+|---|---|
+| `initialPromptSec` | 首次自动弹出退出界面的时间点；`null` 表示没有中途弹窗 |
+| `finalDurationSec` | 任务总时长上限，到达后弹出最终退出界面 |
+| `finalPromptForced` | 最终弹窗是否强制结束任务（两个按钮都会结束，仅记录选择） |
+| `manualExitUnlockSec` | 在此之前点击左上角退出只记录尝试，不结束任务 |
+| `questionnaireAfterFirstPrompt` | 首次弹窗选择继续后，是否先展示完成码与问卷提示 |
+
+- 研究 1A、1B、2A：0–10 分钟浏览 → 10 分钟首次弹窗 → 选择继续后经问卷提示进入第二阶段 → 20 分钟最终弹窗强制结束。
+- 研究 2B：单阶段；呈现时间（5／10／15 分钟）内强制观看，到点后降低饱和度并解锁手动退出，被试可随时退出且退出时点被记录；20 分钟最终弹窗强制结束。3×2 加一个饱和度不变的基线对照，共 7 组。
+- 研究 3：单次 10 分钟追踪任务，达到 10 分钟后只能长按结束。
+
+以下三组共用同一套两阶段基础流程，可复用同一对照编码：
+
+| 条件 | 说明 |
+|---|---|
+| 1A-G1 | 无反馈、轻点继续、全程 100% 饱和度 |
+| 1B-G1 | 无反馈、轻点继续、全程 100% 饱和度 |
+| 2A-G1 | 无反馈、轻点继续、全程 100% 饱和度 |
+
+2B-G6 是研究 2B 自己的基线对照（无反馈、轻点继续、全程 100% 饱和度），但走 2B 的单阶段流程：没有 10 分钟弹窗，到解锁时间后可自发退出，测的是自发退出率与退出时点，而非提示下的二择一选择。因此 **2B-G6 不能与上面三组合并**，只服务于 2B 内部比较。
+
+即便是可合并的三组，也来自不同招募批次与不同后测组合。合并分析前需要在模型中保留研究编号与招募批次。
+
+研究 2B 的编号沿用原方案：G1／G2 为 5 分钟，G4／G5 为 10 分钟，G7／G8 为 15 分钟（各含 30%、65% 两个饱和度水平），G6 为基线对照组；原 100% 饱和度的 G3、G9 已移除。
+
+视觉处理字段中，`saturationPercent` 为名义饱和度水平，`applyAtSec` 为实际发生切换的时间；100% 水平的 `applyAtSec` 为 `null`，`nominalApplyAtSec` 仍保留设计上的时间标签。`feed_summaries` 同时记录 `nominal_saturation_percent`、`nominal_apply_at_sec`、`visual_treatment_applied` 与 `visual_applied_at_ms`，避免把 100% 对照误计为发生过视觉变化。
+
 ## 研究 3 追踪入口
 
 - 研究 1A 对照组链接：`/entry.html?study=1a&condition=g1`（单次实验，不做10天追踪）
@@ -49,6 +81,8 @@ https://experiment.yourdomain.com/entry.html?study=2a&condition=g7&name=张三&s
 - 研究 3 实验组配置为 10 分钟、65% 饱和度、观看时长与条数反馈、长按确认退出；达到 10 分钟后只能长按结束，不提供继续观看按钮。
 
 正式使用前请先执行 `cloudbase/migrations/20260910100000_create_tracking_tables.sql`，并确认 CloudBase PostgreSQL 已创建追踪表。
+
+条件与时程字段更新后，还需执行 `cloudbase/migrations/20260918120000_add_condition_manipulation_fields.sql`，为 `feed_summaries` 增加名义条件、实际视觉处理与时程记录列；未执行前浏览器端写入会回退到本地 `localStorage`。
 
 ## CloudBase 接入
 
@@ -129,7 +163,7 @@ runner.html                   短视频运行器浏览任务容器
 admin.html                    管理员后台雏形
 src/config/categories.js      5 类短视频分类
 src/config/videos.js          视频素材元数据
-src/config/conditions.js      20 个实验条件配置
+src/config/conditions.js      19 个实验条件配置
 src/lib/recommendation.js     推荐序列生成逻辑
 src/lib/store.js              浏览器数据层，优先 CloudBase PostgreSQL，失败时回退 localStorage
 src/runner/runner.js          复用并配置化的短视频运行器抖音式浏览任务

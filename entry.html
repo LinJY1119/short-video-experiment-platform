@@ -64,7 +64,8 @@
       form.innerHTML = '<h1>实验入口无效</h1><p>当前链接无法启动实验。请返回问卷平台重新进入。</p>';
     } else {
       participantInput.value = participantParam;
-      const durationText = study === '2b' ? '十分钟' : '八分钟';
+      // 各研究统一以“十分钟左右”作为目标设定，实际时长由条件配置控制。
+      const durationText = '十分钟';
       experimentInstruction.innerHTML = `欢迎参与本次实验。接下来您将观看某一正在测试的短视频平台提供的推荐内容。您的目标是<strong>通过${durationText}左右的短视频浏览进行娱乐与放松</strong>（您可以根据您的使用体验调整浏览时间）。`;
       categoryGrid.innerHTML = window.CONTENT_CATEGORIES.map((category) => `
         <label class="category-option">

@@ -20,12 +20,12 @@
 
     <section class="hero">
       <div class="hero-card">
-        <h1>一个实验站，承载 20 个条件入口。</h1>
+        <h1>一个实验站，承载 19 个条件入口。</h1>
         <p>被试从问卷平台进入指定条件，先选择感兴趣的短视频类型，再进入复用 jsPsych 模板的手机壳短视频浏览任务。当前版本的数据层已切换为 CloudBase PostgreSQL，浏览器端仅在云端不可用时回退到本地预览缓存。</p>
       </div>
       <div class="panel stat-grid">
-        <div class="stat"><b>4</b><span>研究模块：1A、1B、2A、2B</span></div>
-        <div class="stat"><b>20</b><span>实验条件入口</span></div>
+        <div class="stat"><b>5</b><span>研究模块：1A、1B、2A、2B、3</span></div>
+        <div class="stat"><b>19</b><span>实验条件入口</span></div>
         <div class="stat"><b>5</b><span>短视频内容主分类</span></div>
         <div class="stat"><b>70/30</b><span>偏好类别与非偏好类别推荐比例</span></div>
       </div>
@@ -43,17 +43,37 @@
   <script src="src/config/conditions.js"></script>
   <script>
     const grid = document.getElementById('conditionGrid');
+    function feedbackLabel(condition) {
+      const feedback = condition.exitFeedback;
+      if (!feedback || !feedback.enabled) return '无反馈';
+      if (feedback.showWatchTime && feedback.showViewedCount) return '时间+条数反馈';
+      if (feedback.showWatchTime) return '时间反馈';
+      if (feedback.showViewedCount) return '条数反馈';
+      return '无反馈';
+    }
+    function visualLabel(condition) {
+      const visual = condition.visualTreatment;
+      if (visual.applyAtSec == null) return `${visual.saturationPercent}%（全程不变）`;
+      return `${visual.saturationPercent}% @ ${visual.applyAtSec / 60} 分钟`;
+    }
+    function scheduleLabel(condition) {
+      const browsing = condition.browsing;
+      const first = browsing.initialPromptSec ? `${browsing.initialPromptSec / 60} 分钟首次弹窗` : '无中途弹窗';
+      const total = `${(browsing.finalDurationSec || browsing.maxDurationSec) / 60} 分钟上限`;
+      return `${first} · ${total}`;
+    }
     grid.innerHTML = window.EXPERIMENT_CONDITIONS.map((condition) => {
       const href = `entry.html?study=${condition.study}&condition=${condition.condition}`;
-      const feedback = condition.exitNudge.type;
-      const visual = condition.visualTreatment.saturationPercent + '%';
+      const baselineTag = condition.mergeableBaseline
+        ? '<span class="baseline-tag" title="与1A-G1、1B-G1、2A-G1共用同一套两阶段基础流程，可复用同一对照编码">可合并对照组</span>'
+        : '';
       return `
         <a class="condition-card" href="${href}">
           <span>
             <small>${condition.study.toUpperCase()} / ${condition.condition.toUpperCase()}</small>
-            <b>${condition.name}</b>
+            <b>${condition.name}${baselineTag}</b>
           </span>
-          <p>退出界面：${feedback}<br>继续方式：${condition.continueMode}<br>饱和度：${visual}</p>
+          <p>时程：${scheduleLabel(condition)}<br>反馈：${feedbackLabel(condition)}<br>继续方式：${condition.continueMode}<br>饱和度：${visualLabel(condition)}</p>
         </a>
       `;
     }).join('');
