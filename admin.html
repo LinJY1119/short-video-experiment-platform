@@ -50,7 +50,7 @@
       <h2>条件配置</h2>
       <div style="overflow:auto;">
         <table class="admin-table">
-          <thead><tr><th>入口</th><th>条件</th><th>退出界面</th><th>继续方式</th><th>视觉处理</th></tr></thead>
+          <thead><tr><th>入口</th><th>条件</th><th>时程</th><th>反馈</th><th>继续方式</th><th>视觉处理</th></tr></thead>
           <tbody id="conditionRows"></tbody>
         </table>
       </div>
@@ -185,13 +185,29 @@
 
       document.getElementById('conditionRows').innerHTML = window.EXPERIMENT_CONDITIONS.map((condition) => {
         const url = `entry.html?study=${condition.study}&condition=${condition.condition}`;
+        const browsing = condition.browsing;
+        const visual = condition.visualTreatment;
+        const feedback = condition.exitFeedback;
+        const feedbackLabel = !feedback || !feedback.enabled
+          ? '无反馈'
+          : feedback.showWatchTime && feedback.showViewedCount
+            ? '时间+条数'
+            : feedback.showWatchTime ? '时间' : feedback.showViewedCount ? '条数' : '无反馈';
+        const scheduleLabel = `${browsing.initialPromptSec ? `${browsing.initialPromptSec / 60}分首次弹窗` : '无中途弹窗'} / ${(browsing.finalDurationSec || browsing.maxDurationSec) / 60}分上限`;
+        const visualLabel = visual.applyAtSec == null
+          ? `${visual.saturationPercent}%（全程不变）`
+          : `${visual.saturationPercent}% @ ${visual.applyAtSec / 60}分`;
+        const baselineTag = condition.mergeableBaseline
+          ? '<span class="baseline-tag">可合并对照组</span>'
+          : '';
         return `
           <tr>
             <td><a href="${url}">${condition.study.toUpperCase()}-${condition.condition.toUpperCase()}</a></td>
-            <td>${condition.name}</td>
-            <td>${condition.exitNudge.type}</td>
+            <td>${condition.name}${baselineTag}</td>
+            <td>${scheduleLabel}</td>
+            <td>${feedbackLabel}</td>
             <td>${condition.continueMode}</td>
-            <td>${condition.visualTreatment.saturationPercent}% / ${condition.visualTreatment.applyAtSec ?? 0}s</td>
+            <td>${visualLabel}</td>
           </tr>
         `;
       }).join('');

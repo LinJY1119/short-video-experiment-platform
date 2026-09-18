@@ -40,22 +40,32 @@ const feed = storedFeed
       seed: sessionId || 'fallback',
     });
 
-const TIME_CAP_MS = Number(params.get('cap') || condition?.browsing?.maxDurationSec || 0) * 1000;
+const browsingConfig = condition?.browsing || {};
+
+function configMs(value) {
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+}
+
 const TRACKING_TIME_CAP_MS = isTrackingRun
-  ? Number(params.get('cap') || condition?.browsing?.trackingDurationSec || condition?.browsing?.maxDurationSec || 0) * 1000
-  : TIME_CAP_MS;
-const TWO_PHASE = !isTrackingRun && condition?.browsing?.twoPhase === true;
-const PHASE_DURATION_MS = Number(
-  params.get('phaseCap') || condition?.browsing?.phaseDurationSec || condition?.browsing?.maxDurationSec || 0
-) * 1000;
-const EXIT_LOCKED_STUDIES = new Set(['1a', '1b', '2a']);
-const EXIT_UNLOCK_MS = isTrackingRun
+  ? configMs(params.get('cap') || browsingConfig.trackingDurationSec || browsingConfig.maxDurationSec)
+  : 0;
+// 两阶段研究（1A/1B/2A）：10 分钟首次弹窗，选择继续后浏览至 20 分钟强制结束。
+const TWO_PHASE = !isTrackingRun && browsingConfig.twoPhase === true;
+// 首次自动弹窗时间；单阶段研究（2B）没有中途弹窗。
+const FIRST_PROMPT_MS = isTrackingRun
   ? TRACKING_TIME_CAP_MS
-  : EXIT_LOCKED_STUDIES.has(condition?.study)
-    ? TIME_CAP_MS
-    : condition?.study === '2b'
-      ? Number(condition.visualTreatment?.applyAtSec || 0) * 1000
-      : 0;
+  : configMs(params.get('phaseCap') || browsingConfig.initialPromptSec || (TWO_PHASE ? browsingConfig.phaseDurationSec : 0));
+// 任务总时长上限，到达后弹出最终退出界面。
+const FINAL_CAP_MS = isTrackingRun
+  ? TRACKING_TIME_CAP_MS
+  : configMs(params.get('cap') || browsingConfig.finalDurationSec || browsingConfig.maxDurationSec);
+// 在此时间点之前，点击左上角退出不会结束任务（仅记录退出尝试）。
+const MANUAL_EXIT_UNLOCK_MS = isTrackingRun
+  ? TRACKING_TIME_CAP_MS
+  : configMs(browsingConfig.manualExitUnlockSec);
+const FINAL_PROMPT_FORCED = isTrackingRun || browsingConfig.finalPromptForced === true;
+const QUESTIONNAIRE_AFTER_FIRST_PROMPT = TWO_PHASE && browsingConfig.questionnaireAfterFirstPrompt !== false;
 
 const ICONS = {
   heart: '<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 42.7l-2.6-2.3C11.5 31.6 5 25.7 5 18.5 5 12.7 9.6 8 15.4 8c3.3 0 6.4 1.5 8.6 4 2.2-2.5 5.3-4 8.6-4C38.4 8 43 12.7 43 18.5c0 7.2-6.5 13.1-16.4 21.9L24 42.7z"/></svg>',
@@ -166,6 +176,12 @@ function showIntro() {
     selectedCategories: fallbackCategories,
     status: 'runner_ready',
   });
+  const exitRuleText = MANUAL_EXIT_UNLOCK_MS > 0
+    ? '<li>请持续浏览视频，达到规定时间后页面会显示下一步提示；未达到规定时间前点击退出不会结束实验。</li>'
+    : '<li>请持续浏览视频，您可以随时点击左上角退出；达到规定时间后页面也会显示下一步提示。</li>';
+  const questionnaireText = QUESTIONNAIRE_AFTER_FIRST_PROMPT
+    ? '<li>第一阶段结束后，如选择继续观看，需要先返回见数完成问卷，再回到本页面点击按钮进入下一阶段。</li>'
+    : '';
   renderPlainStage(`
     <h1>短视频浏览任务</h1>
     <p>接下来你将进入一个短视频信息流界面。系统已根据你选择的内容类型生成推荐序列。</p>
@@ -173,9 +189,9 @@ function showIntro() {
       <li>在屏幕中间<strong>上滑</strong>切换到下一条，<strong>下滑</strong>回到上一条。</li>
       <li>按住屏幕<strong>左侧或右侧边缘</strong>为 2 倍速播放，松开恢复正常速度。</li>
       <li>轻点屏幕中间可开启或关闭声音。</li>
-      <li>请持续浏览视频，达到当前阶段规定时间后页面会显示下一步提示；未达到规定时间前点击退出不会结束实验。</li>
+      ${exitRuleText}
       <li><strong>请您在接下来的实验过程中保持在该网站的浏览，请勿退出或切屏。</strong></li>
-      <li>第一阶段结束后，如选择继续观看，需要先返回见数完成问卷，再回到本页面点击按钮进入下一阶段。</li>
+      ${questionnaireText}
     </ul>
     <p>请按自己平时的习惯自由浏览。</p>
     <div class="stage-actions"><button type="button" class="runner-btn" id="startFeedBtn">开始浏览</button></div>
@@ -337,6 +353,8 @@ function startFeed() {
     firstExitAttemptMs: null,
     exitPromptShownAt: null,
     exitReason: null,
+    exitPromptIsFinal: false,
+    blockedExitAttempts: 0,
     timeCapChoice: null,
     cancelCount: 0,
     unmuted: false,
@@ -360,7 +378,9 @@ function startFeed() {
     completionCode: null,
     completionCodePromise: null,
     visualApplied: false,
+    visualAppliedAtMs: null,
     timeCapPrompted: false,
+    finalPromptShown: false,
     trackingCapReached: false,
     finished: false,
   };
@@ -422,29 +442,41 @@ function startFeed() {
 
   function applyVisualTreatment() {
     state.visualApplied = true;
-    const saturation = Number(condition.visualTreatment.saturationPercent || 100) / 100;
-    const brightness = Number(condition.visualTreatment.brightnessPercent ?? (saturation < 1 ? 92 : 100)) / 100;
+    state.visualAppliedAtMs = nowMs();
+    const saturationPercent = Number(condition.visualTreatment.saturationPercent || 100);
+    const saturation = saturationPercent / 100;
+    const brightnessPercent = Number(condition.visualTreatment.brightnessPercent ?? (saturation < 1 ? 92 : 100));
     feedVisual.style.setProperty('--feed-saturation', String(saturation));
-    feedVisual.style.setProperty('--feed-brightness', String(brightness));
-    logEvent('visual-treatment-applied', { target: 'feed', value: `${condition.visualTreatment.saturationPercent}/${condition.visualTreatment.brightnessPercent ?? (saturation < 1 ? 92 : 100)}` });
+    feedVisual.style.setProperty('--feed-brightness', String(brightnessPercent / 100));
+    logEvent('visual-treatment-applied', { target: 'feed', duration: state.visualAppliedAtMs, value: `${saturationPercent}/${brightnessPercent}` });
   }
 
-  function phaseCapMs() {
-    return TWO_PHASE ? PHASE_DURATION_MS : TRACKING_TIME_CAP_MS;
+  // 下一次自动弹窗前剩余的有效浏览时长。
+  function nextPromptDelayMs() {
+    if (TWO_PHASE && activePhase === 'phase_1') {
+      return FIRST_PROMPT_MS > 0 ? FIRST_PROMPT_MS - nowMs() : -1;
+    }
+    if (isTrackingRun) {
+      return state.timeCapPrompted ? -1 : TRACKING_TIME_CAP_MS - nowMs();
+    }
+    if (FINAL_CAP_MS <= 0 || state.finalPromptShown) return -1;
+    return FINAL_CAP_MS - nowMs();
   }
 
   function scheduleCapTimer() {
-    if (state.finished || state.capTimer || phaseCapMs() <= 0) return;
-    if (!TWO_PHASE && state.timeCapPrompted) return;
-    const delay = Math.max(0, phaseCapMs() - (TWO_PHASE ? (activePhase === 'phase_1' ? nowMs() : nowMs() - state.phaseTwoStartedAtMs) : nowMs()));
+    if (state.finished || state.capTimer) return;
+    const remaining = nextPromptDelayMs();
+    if (remaining < 0) return;
     state.capTimer = window.setTimeout(() => {
       state.capTimer = null;
       openExit(null, 'time_cap');
-    }, delay);
+    }, Math.max(0, remaining));
   }
 
   function scheduleVisualTreatment() {
     if (state.finished || state.visualTimer || state.visualApplied) return;
+    // applyAtSec 为 null 表示该条件不做任何视觉切换（100% 饱和度对照）。
+    if (condition.visualTreatment.applyAtSec == null) return;
     if (!condition.visualTreatment.grayscale && condition.visualTreatment.saturationPercent >= 100) return;
     const delay = Math.max(0, Number(condition.visualTreatment.applyAtSec || 0) * 1000 - nowMs());
     if (delay === 0) applyVisualTreatment();
@@ -700,6 +732,17 @@ function startFeed() {
     logEvent('tap', { target: 'action_search', x: Math.round(e.clientX), y: Math.round(e.clientY), value: feed[state.index].sample_id });
   });
 
+  // 反馈操纵的互斥编码：none / time / count / combined。
+  function exitFeedbackMode() {
+    if (!condition.exitFeedback?.enabled) return 'none';
+    const showWatchTime = condition.exitFeedback.showWatchTime === true;
+    const showViewedCount = condition.exitFeedback.showViewedCount === true;
+    if (showWatchTime && showViewedCount) return 'combined';
+    if (showWatchTime) return 'time';
+    if (showViewedCount) return 'count';
+    return 'none';
+  }
+
   function exitFeedbackHTML() {
     if (!condition.exitFeedback?.enabled) return '';
     const metrics = [];
@@ -794,21 +837,23 @@ function startFeed() {
           : 'single_phase_exit';
     }
     await recordExitDecision('exit', fromTimeCap ? 'time_cap' : 'manual_exit');
-    if (fromTimeCap && activePhase === 'phase_2') {
-      void finish('phase_2_time_cap_exit', { showCompletionCode: false });
-      return;
-    }
-    if (fromTimeCap && activePhase === 'phase_1') {
-      await ensureCompletionCode();
-    }
-    void finish(fromTimeCap
-      ? (TWO_PHASE ? 'phase_1_time_cap_exit' : 'single_phase_time_cap_exit')
-      : 'manual_exit', { showCompletionCode: true });
+    // 任何路径的最终退出都展示完成码，便于被试回见数继续后测。
+    await ensureCompletionCode();
+    const method = fromTimeCap
+      ? (TWO_PHASE
+        ? (activePhase === 'phase_2' ? 'phase_2_time_cap_exit' : 'phase_1_time_cap_exit')
+        : 'single_phase_time_cap_exit')
+      : 'manual_exit';
+    void finish(method, { showCompletionCode: true });
   }
 
   function formatHoldSeconds(ms) {
     const seconds = Math.max(0, ms / 1000);
     return seconds.toFixed(1).replace(/\.0$/, '');
+  }
+
+  function holdInstructionText(label, requiredMs) {
+    return `${label}（长按 ${formatHoldSeconds(requiredMs)} 秒）`;
   }
 
   function bindHoldButton(button, {
@@ -994,12 +1039,17 @@ function startFeed() {
             </div>
           </div>`
         : `<button type="button" class="card-btn card-btn--secondary" id="cancelExitBtn"><span>${cancelText}</span></button>`;
+    // 最终弹窗为强制结束，两个按钮都会结束任务，只记录被试的选择。
+    const finalNote = state.exitPromptIsFinal && !isTrackingRun
+      ? '<p class="exit-lock-note">本次浏览任务已达到时长上限，选择后将结束观看并进入后续步骤。</p>'
+      : '';
     exitCard.innerHTML = `
       <h2>${escapeHtml(condition.exitNudge.title || '观看提示')}</h2>
       <p>${escapeHtml(message)}</p>
       ${exitFeedbackHTML()}
       ${primary}
       ${secondary}
+      ${finalNote}
     `;
 
     const confirmBtn = exitCard.querySelector('#confirmExitBtn');
@@ -1132,6 +1182,17 @@ function startFeed() {
     });
   }
 
+  // 进入第二阶段：重置阶段级记录，第二阶段的结束由 20 分钟总上限控制。
+  function startPhaseTwo() {
+    if (!TWO_PHASE || activePhase === 'phase_2') return;
+    activePhase = 'phase_2';
+    state.phaseTwoStartedAtMs = nowMs();
+    state.phaseTwoStartedEpochMs = Date.now();
+    state.phaseTwoPromptAtMs = null;
+    state.phaseTwoChoice = null;
+    logEvent('phase-start', { target: 'phase_2', duration: state.phaseTwoStartedAtMs });
+  }
+
   function showQuestionnaireReminder() {
     state.questionnaireReminderShownAtMs = nowMs();
     state.questionnaireReminderShownEpochMs = Date.now();
@@ -1161,19 +1222,13 @@ function startFeed() {
           questionnaireReturnedEpochMs: state.questionnaireReturnedEpochMs,
         });
       }
-      if (TWO_PHASE) {
-        activePhase = 'phase_2';
-        state.phaseTwoStartedAtMs = nowMs();
-        state.phaseTwoStartedEpochMs = Date.now();
-        state.phaseTwoPromptAtMs = null;
-        state.phaseTwoChoice = null;
-        logEvent('phase-start', { target: 'phase_2' });
-      }
+      startPhaseTwo();
       exitLayer.classList.remove('is-open');
       state.exitPromptShownAt = null;
       state.exitPromptElapsedMs = null;
       state.exitPromptEpochMs = null;
       state.exitReason = null;
+      state.exitPromptIsFinal = false;
       state.timeCapPrompted = false;
       resumeViewingAfterOverlay();
       renderDebug('resume_after_questionnaire');
@@ -1189,11 +1244,15 @@ function startFeed() {
 
   function openExit(e, reason = 'manual') {
     if (exitLayer.classList.contains('is-open')) return;
-    if (EXIT_UNLOCK_MS > 0 && nowMs() < EXIT_UNLOCK_MS) {
+    // 手动退出在解锁时间点之前只记录尝试，不结束任务。
+    if (reason !== 'time_cap' && MANUAL_EXIT_UNLOCK_MS > 0 && nowMs() < MANUAL_EXIT_UNLOCK_MS) {
+      state.blockedExitAttempts += 1;
+      if (state.firstExitAttemptMs === null) state.firstExitAttemptMs = nowMs();
       logEvent('exit-blocked', {
-        target: reason === 'time_cap' ? 'time_cap' : 'exit_button',
+        target: 'exit_button',
         x: e ? Math.round(e.clientX) : null,
         y: e ? Math.round(e.clientY) : null,
+        duration: nowMs(),
         value: feed[state.index].sample_id,
       });
       pauseViewingForOverlay();
@@ -1201,9 +1260,11 @@ function startFeed() {
       return;
     }
     state.exitOpened += 1;
+    const isFinalPrompt = reason === 'time_cap' && (!TWO_PHASE || activePhase !== 'phase_1');
     if (reason === 'time_cap') {
       state.timeCapPrompted = true;
       if (isTrackingRun) state.trackingCapReached = true;
+      if (isFinalPrompt) state.finalPromptShown = true;
       if (activePhase === 'phase_1') state.phaseOnePromptAtMs = nowMs();
       if (activePhase === 'phase_2') state.phaseTwoPromptAtMs = nowMs();
     }
@@ -1211,15 +1272,17 @@ function startFeed() {
     state.exitPromptElapsedMs = nowMs();
     state.exitPromptEpochMs = Date.now();
     state.exitReason = reason;
+    state.exitPromptIsFinal = isFinalPrompt && FINAL_PROMPT_FORCED;
     if (reason === 'manual') state.manualExitAfterPhaseOneAtMs = nowMs();
     if (state.firstExitAttemptMs === null) state.firstExitAttemptMs = nowMs();
     pauseViewingForOverlay();
     renderExitCard();
     exitLayer.classList.add('is-open');
     logEvent(reason === 'time_cap' ? 'time-cap-prompt-open' : 'manual-exit-prompt-open', {
-      target: reason === 'time_cap' ? 'time_cap' : 'exit_button',
+      target: reason === 'time_cap' ? (isFinalPrompt ? 'final_time_cap' : 'first_time_cap') : 'exit_button',
       x: e ? Math.round(e.clientX) : null,
       y: e ? Math.round(e.clientY) : null,
+      duration: state.exitPromptElapsedMs,
       value: feed[state.index].sample_id,
     });
     renderDebug('open_exit');
@@ -1228,6 +1291,7 @@ function startFeed() {
   async function cancelExit(method = 'cancel_exit_button') {
     state.cancelCount += 1;
     const exitReason = state.exitReason;
+    const wasFinalPrompt = state.exitPromptIsFinal;
     const choice = 'continue';
     if (activePhase === 'phase_1') state.phaseOneChoice = choice;
     if (activePhase === 'phase_2') state.phaseTwoChoice = choice;
@@ -1236,24 +1300,29 @@ function startFeed() {
     state.exitPromptElapsedMs = null;
     state.exitPromptEpochMs = null;
     state.exitReason = null;
-    if (exitReason === 'time_cap' && activePhase === 'phase_1') {
+    state.exitPromptIsFinal = false;
+    // 第一次（10 分钟）弹窗选择继续：进入第二阶段，必要时先完成问卷提示。
+    if (exitReason === 'time_cap' && TWO_PHASE && activePhase === 'phase_1') {
       state.timeCapChoice = 'phase_1_continue';
-      await ensureCompletionCode();
-      showQuestionnaireReminder();
-      renderDebug('phase_1_questionnaire');
+      if (QUESTIONNAIRE_AFTER_FIRST_PROMPT) {
+        await ensureCompletionCode();
+        showQuestionnaireReminder();
+        renderDebug('phase_1_questionnaire');
+        return;
+      }
+      startPhaseTwo();
+      exitLayer.classList.remove('is-open');
+      state.timeCapPrompted = false;
+      resumeViewingAfterOverlay();
+      renderDebug('phase_2_started');
       return;
     }
-    if (exitReason === 'time_cap' && activePhase === 'phase_2') {
-      state.timeCapChoice = 'phase_2_continue';
-      logEvent('phase-2-ended', { target: 'experiment_end' });
-      void finish('phase_2_time_cap_continue', { showCompletionCode: false });
-      renderDebug('phase_2_ended');
-      return;
-    }
-    if (exitReason === 'time_cap' && !TWO_PHASE) {
-      state.timeCapChoice = 'single_phase_continue';
-      void finish('single_phase_time_cap_continue', { showCompletionCode: true });
-      renderDebug('single_phase_time_cap_completed');
+    // 最终弹窗：无论选择哪一项都结束任务，只是把选择记录下来。
+    if (wasFinalPrompt) {
+      state.timeCapChoice = TWO_PHASE ? 'phase_2_continue' : 'single_phase_continue';
+      logEvent('final-prompt-ended', { target: 'experiment_end', value: choice });
+      void finish(TWO_PHASE ? 'phase_2_time_cap_continue' : 'single_phase_time_cap_continue', { showCompletionCode: true });
+      renderDebug('final_prompt_completed');
       return;
     }
     exitLayer.classList.remove('is-open');
@@ -1307,8 +1376,9 @@ function startFeed() {
       second_phase_prompt_at_ms: state.phaseTwoPromptAtMs ?? '',
       questionnaire_reminder_shown_at_ms: state.questionnaireReminderShownAtMs ?? '',
       questionnaire_returned_at_ms: state.questionnaireReturnedAtMs ?? '',
-      first_phase_watch_ms: state.phaseOnePromptAtMs ?? (activePhase === 'phase_1' ? totalFeedMs : PHASE_DURATION_MS),
-      second_phase_watch_ms: activePhase === 'phase_2' && state.phaseTwoStartedAtMs !== null
+      // 第一阶段有效观看时长：到首次弹窗为止；若未到首次弹窗就结束，则为全部有效时长。
+      first_phase_watch_ms: state.phaseOnePromptAtMs ?? (TWO_PHASE ? totalFeedMs : ''),
+      second_phase_watch_ms: state.phaseTwoStartedAtMs !== null
         ? Math.max(0, totalFeedMs - state.phaseTwoStartedAtMs)
         : '',
       start_epoch_ms: startEpoch,
@@ -1336,6 +1406,17 @@ function startFeed() {
       questionnaire_reminder_count: events.filter((event) => event.type === 'questionnaire-reminder-shown').length,
       questionnaire_return_count: events.filter((event) => event.type === 'questionnaire-returned').length,
       second_phase_manual_exit_count: activePhase === 'phase_2' && method === 'manual_exit' ? 1 : 0,
+      // 名义条件与实际呈现分开记录：100% 饱和度对照不会发生视觉切换。
+      nominal_saturation_percent: Number(condition.visualTreatment.saturationPercent ?? 100),
+      nominal_apply_at_sec: condition.visualTreatment.nominalApplyAtSec ?? condition.visualTreatment.applyAtSec ?? '',
+      visual_treatment_applied: state.visualApplied ? 1 : 0,
+      visual_applied_at_ms: state.visualAppliedAtMs ?? '',
+      exit_feedback_mode: exitFeedbackMode(),
+      continue_mode: condition.continueMode || 'tap_cancel',
+      exit_mode: condition.exitMode || 'tap_confirm',
+      first_prompt_sec: FIRST_PROMPT_MS > 0 ? FIRST_PROMPT_MS / 1000 : '',
+      final_duration_sec: FINAL_CAP_MS > 0 ? FINAL_CAP_MS / 1000 : '',
+      blocked_exit_attempt_count: state.blockedExitAttempts,
     };
 
     const shouldShowCompletionCode = options.showCompletionCode !== false;
