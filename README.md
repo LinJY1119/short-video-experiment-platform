@@ -141,7 +141,7 @@ src/config/videos.js
 const remoteBase = 'https://media.cloud-bridge.cn/stimuli/'
 ```
 
-并在非 localhost 环境自动使用远程素材地址。当前 `VIDEO_ASSETS` 共包含 100 条启用素材，5 个内容类别各 20 条；素材已剔除广告、商品推广、不健康、露骨及擦边内容。新 session 会从当前启用素材池中按被试偏好类别生成推荐序列。也可以临时通过 URL 参数覆盖：
+并在非 localhost 环境自动使用远程素材地址。当前 `VIDEO_ASSETS` 共包含 100 条启用素材，5 个内容类别各 20 条；素材已剔除硬广（含购买链接、优惠券、直播带货）、不健康、露骨及擦边内容。需注意「潮流推荐」类按类别定义包含好物推荐与美妆产品测评，这类内容本身带有消费导向，但均为 UP 主自主分享、不含交易引导。新 session 会从当前启用素材池中按被试偏好类别生成推荐序列。也可以临时通过 URL 参数覆盖：
 
 ```text
 ?media=https://media.cloud-bridge.cn/stimuli/
