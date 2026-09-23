@@ -515,6 +515,71 @@ html, body {
 
 .progress > span { display: block; height: 100%; width: 0; background: rgba(255, 255, 255, .95); }
 
+/* 加载指示：仅在当前条缓冲不足时出现，不拦截滑动手势 */
+.video-loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 13;
+  display: none;
+  pointer-events: none;
+}
+
+.video-loading.is-on { display: block; }
+
+.video-loading__dot {
+  display: block;
+  width: calc(28 * var(--u));
+  height: calc(28 * var(--u));
+  border-radius: 50%;
+  border: calc(3 * var(--u)) solid rgba(255, 255, 255, .25);
+  border-top-color: rgba(255, 255, 255, .9);
+  animation: video-spin .8s linear infinite;
+}
+
+@keyframes video-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .video-loading__dot { animation-duration: 2.4s; }
+}
+
+/* 播放失败时的可见出口：必须高于交互 zone(z-index 4~5) 且可点击，
+   否则被试只能看到静默的纯色块、无法自行恢复。 */
+.video-retry {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(12 * var(--u));
+  padding: calc(18 * var(--u)) calc(24 * var(--u));
+  border-radius: calc(12 * var(--u));
+  background: rgba(0, 0, 0, .72);
+  text-align: center;
+}
+
+.video-retry[hidden] { display: none; }
+
+.video-retry__text {
+  margin: 0;
+  color: #fff;
+  font-size: calc(14 * var(--u));
+}
+
+.video-retry__btn {
+  border: 0;
+  border-radius: 999px;
+  padding: calc(8 * var(--u)) calc(22 * var(--u));
+  background: #fe2c55;
+  color: #fff;
+  font-size: calc(14 * var(--u));
+  font-weight: 600;
+}
+
 .sound-hint {
   position: absolute;
   left: 50%;

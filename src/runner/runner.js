@@ -122,6 +122,9 @@ function logEvent(type, detail = {}) {
     y: detail.y ?? null,
     duration: detail.duration ?? null,
     value: detail.value ?? null,
+    // label 用于承载 value 之外的补充分类（如播放失败的 MEDIA_ERR 类型、
+    // 预加载等级），events 整列以 JSON 存储，新增字段无需变更表结构。
+    label: detail.label ?? null,
   });
 }
 
@@ -212,7 +215,11 @@ function slideHTML(item, index) {
         muted
         playsinline
         webkit-playsinline
+        x5-playsinline
+        x5-video-player-type="h5-page"
+        x5-video-orientation="portrait"
         disablepictureinpicture
+        disableremoteplayback
       ></video>
     </div>
   `;
@@ -284,6 +291,11 @@ function feedHTML(feedItems) {
       </div>
       <div id="actionsSlot">${actionsHTML(first)}</div>
       <div id="captionSlot">${captionHTML(first)}</div>
+      <div class="video-loading" id="videoLoading" aria-hidden="true"><span class="video-loading__dot"></span></div>
+      <div class="video-retry" id="videoRetry" hidden>
+        <p class="video-retry__text">视频加载失败</p>
+        <button type="button" class="video-retry__btn" id="videoRetryBtn">重新加载</button>
+      </div>
       <div class="sound-hint" id="soundHint">轻点画面开启声音</div>
       <div class="swipe-hint" id="swipeHint">上滑查看下一条</div>
       <div class="progress"><span id="progressFill"></span></div>
@@ -325,6 +337,9 @@ function startFeed() {
   const progressFill = document.getElementById('progressFill');
   const soundHint = document.getElementById('soundHint');
   const swipeHint = document.getElementById('swipeHint');
+  const videoLoading = document.getElementById('videoLoading');
+  const videoRetry = document.getElementById('videoRetry');
+  const videoRetryBtn = document.getElementById('videoRetryBtn');
   const exitBtn = document.getElementById('exitBtn');
   const searchBtn = document.getElementById('searchBtn');
   const exitLayer = document.getElementById('exitLayer');
@@ -488,7 +503,13 @@ function startFeed() {
 
   function ensureVideoLoaded(index, preload = 'metadata') {
     const video = videos[index];
-    if (!video || video.dataset.loaded === '1') return video;
+    if (!video) return video;
+    // 已加载过的只按需升级 preload 等级（metadata -> auto），不重新 load()，
+    // 否则会丢掉已缓冲的数据、把进度条打回 0。
+    if (video.dataset.loaded === '1') {
+      if (preload === 'auto' && video.preload !== 'auto') video.preload = 'auto';
+      return video;
+    }
     const src = video.dataset.src;
     const poster = video.dataset.poster;
     if (poster) video.setAttribute('poster', poster);
@@ -497,7 +518,7 @@ function startFeed() {
       video.src = src;
       video.dataset.loaded = '1';
       video.load();
-      logEvent('video-lazy-load', { target: 'video_slide', value: feed[index]?.sample_id });
+      logEvent('video-lazy-load', { target: 'video_slide', value: feed[index]?.sample_id, label: preload });
     }
     return video;
   }
@@ -505,17 +526,35 @@ function startFeed() {
   function unloadVideo(index) {
     const video = videos[index];
     if (!video || video.dataset.loaded !== '1') return;
+    // 先打标记：清空 src 后 load() 在部分内核上会补发一次 error 事件，
+    // 必须让 error 处理器识别出这是主动卸载而非真实加载失败。
+    video.dataset.unloading = '1';
     video.pause();
     video.removeAttribute('src');
     video.load();
     video.dataset.loaded = '0';
+    delete video.dataset.unloading;
     logEvent('video-unload', { target: 'video_slide', value: feed[index]?.sample_id });
   }
 
+  // 预加载阶梯：当前条满载并播放，下一条整段预缓冲（最可能被划到），
+  // 上一条与下两条只取 metadata（含 moov，可秒级升级为 auto），其余卸载释放内存。
+  // 省流量模式或 2G 下收敛为"只保当前条"，避免替被试消耗移动数据。
   function prepareNearbyVideos() {
     ensureVideoLoaded(state.index, 'auto');
-    ensureVideoLoaded(state.index + 1, 'metadata');
+    if (isDataSaving()) {
+      ensureVideoLoaded(state.index + 1, 'metadata');
+      return;
+    }
+    ensureVideoLoaded(state.index + 1, 'auto');
     ensureVideoLoaded(state.index - 1, 'metadata');
+    ensureVideoLoaded(state.index + 2, 'metadata');
+  }
+
+  function isDataSaving() {
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!conn) return false;
+    return Boolean(conn.saveData) || /(^|-)2g$/.test(conn.effectiveType || '');
   }
 
   function playActive() {
@@ -523,9 +562,21 @@ function startFeed() {
     if (!video) return;
     video.playbackRate = state.speedZone ? SPEED_RATE : 1;
     video.muted = !state.unmuted;
+    showRetry(false);
+    if (video.readyState < 3) showSpinner(true);
+    armStallWatch();
     const p = video.play();
     if (p && typeof p.catch === 'function') {
-      p.catch(() => logEvent('autoplay-blocked', { value: feed[state.index].sample_id }));
+      p.catch((error) => {
+        // NotAllowedError 是自动播放策略拦截（可由下一次点击恢复），
+        // 其余多为解码/资源错误，需要给被试重试入口。
+        const name = error && error.name ? error.name : 'unknown';
+        logEvent('autoplay-blocked', { value: feed[state.index].sample_id, label: name });
+        if (name !== 'NotAllowedError' && name !== 'AbortError') {
+          clearStallWatch();
+          showRetry(true);
+        }
+      });
     }
   }
 
@@ -533,8 +584,12 @@ function startFeed() {
     videos.forEach((video, i) => {
       if (i !== state.index) {
         video.pause();
-        if (Math.abs(i - state.index) > 1) {
-          video.currentTime = 0;
+        // 卸载窗口需比预加载窗口(+2)更宽，否则刚预取的 metadata 会被立刻丢掉。
+        if (Math.abs(i - state.index) > 2) {
+          // 对已清空 src 的元素写 currentTime 会抛 InvalidStateError，需先确认有数据。
+          if (video.readyState > 0) {
+            try { video.currentTime = 0; } catch (error) { /* 元素已无媒体数据，忽略 */ }
+          }
           unloadVideo(i);
         }
       }
@@ -542,11 +597,95 @@ function startFeed() {
     prepareNearbyVideos();
   }
 
+  // HTMLMediaElement.error.code 语义，用于在 feed_events 里区分失败类型：
+  // 2=网络中断 3=解码失败(编码规格不被硬解器接受) 4=资源格式不受支持
+  const MEDIA_ERR_NAMES = {
+    1: 'aborted', 2: 'network', 3: 'decode', 4: 'src_not_supported',
+  };
+  const STALL_TIMEOUT_MS = 12000;
+  let stallTimer = null;
+
+  function showSpinner(on) {
+    videoLoading.classList.toggle('is-on', Boolean(on));
+  }
+
+  function showRetry(on) {
+    videoRetry.hidden = !on;
+    if (on) showSpinner(false);
+  }
+
+  function clearStallWatch() {
+    if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+  }
+
+  // 起播看门狗：超时仍未进入 playing，就把静默转圈升级为可见的重试入口，
+  // 避免被试对着转圈干等、最后只能退出实验。
+  function armStallWatch() {
+    clearStallWatch();
+    stallTimer = setTimeout(() => {
+      if (activeVideo() && activeVideo().readyState < 3) {
+        logEvent('video-stall-timeout', {
+          target: 'video_slide',
+          value: feed[state.index]?.sample_id,
+          duration: STALL_TIMEOUT_MS,
+        });
+        showRetry(true);
+      }
+    }, STALL_TIMEOUT_MS);
+  }
+
+  function markLoaded(video) {
+    const slide = video.closest('.slide');
+    if (slide) slide.classList.remove('is-fallback');
+    if (video === activeVideo()) {
+      clearStallWatch();
+      showSpinner(false);
+      showRetry(false);
+    }
+  }
+
+  function retryActive() {
+    const index = state.index;
+    const video = videos[index];
+    if (!video) return;
+    logEvent('video-retry', { target: 'video_slide', value: feed[index]?.sample_id });
+    showRetry(false);
+    showSpinner(true);
+    unloadVideo(index);
+    ensureVideoLoaded(index, 'auto');
+    armStallWatch();
+    playActive();
+  }
+
+  videoRetryBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    retryActive();
+  });
+
   videos.forEach((video) => {
     video.addEventListener('error', () => {
+      // 主动卸载时清空 src 触发的 error 不是真实失败，直接忽略。
+      if (video.dataset.unloading === '1' || !video.getAttribute('src')) return;
+      const code = video.error ? video.error.code : 0;
       video.closest('.slide').classList.add('is-fallback');
-      logEvent('video-load-error', { value: video.getAttribute('src') });
+      logEvent('video-load-error', {
+        target: 'video_slide',
+        value: feed[Number(video.dataset.index)]?.sample_id,
+        label: MEDIA_ERR_NAMES[code] || `unknown_${code}`,
+      });
+      if (video === activeVideo()) {
+        clearStallWatch();
+        showRetry(true);
+      }
     });
+    video.addEventListener('waiting', () => {
+      if (video === activeVideo()) showSpinner(true);
+    });
+    video.addEventListener('stalled', () => {
+      if (video === activeVideo()) showSpinner(true);
+    });
+    video.addEventListener('canplay', () => markLoaded(video));
+    video.addEventListener('playing', () => markLoaded(video));
     video.addEventListener('timeupdate', () => {
       if (video !== activeVideo() || !video.duration || isNaN(video.duration)) return;
       progressFill.style.width = `${(video.currentTime / video.duration) * 100}%`;
@@ -1358,6 +1497,10 @@ function startFeed() {
     }
     pauseFeedTimer();
     videos.forEach((v) => v.pause());
+    // 浏览阶段已结束，停掉看门狗并收起加载/重试层，防止其覆盖后续问卷界面。
+    clearStallWatch();
+    showSpinner(false);
+    showRetry(false);
     speedBanner.classList.remove('is-on');
     logEvent('feed-finish', { target: method, value: feed[state.index].sample_id });
 
