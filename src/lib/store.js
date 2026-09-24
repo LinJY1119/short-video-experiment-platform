@@ -150,6 +150,24 @@
     return window.cloudbase || null;
   }
 
+  // Admin and upload pages sign in with a real account, and every page load runs this
+  // module again. Signing in anonymously unconditionally would replace that session and
+  // bounce the operator back to the login screen, so check for a named session first.
+  async function hasNamedSession(auth) {
+    try {
+      if (typeof auth.getSession !== 'function') return false;
+      const result = await auth.getSession();
+      const session = result?.data?.session ?? result?.session ?? result?.data ?? null;
+      if (!session) return false;
+      const user = session.user || session;
+      if (user?.is_anonymous === true || user?.isAnonymous === true) return false;
+      const provider = user?.app_metadata?.provider || user?.provider || '';
+      return provider !== 'anonymous';
+    } catch (error) {
+      return false;
+    }
+  }
+
   function pickNewest(existing, next) {
     const existingTime = normalizeTimestamp(valueOf(existing, 'updatedAt', 'updated_at', 'createdAt', 'created_at')) || 0;
     const nextTime = normalizeTimestamp(valueOf(next, 'updatedAt', 'updated_at', 'createdAt', 'created_at')) || 0;
@@ -987,7 +1005,7 @@
         if (!db || typeof db.from !== 'function') {
           throw new Error('CloudBase PostgreSQL client unavailable');
         }
-        if (config.anonymousLogin !== false) {
+        if (config.anonymousLogin !== false && !(await hasNamedSession(auth))) {
           const result = await auth.signInAnonymously();
           if (result && result.error) throw result.error;
         }
