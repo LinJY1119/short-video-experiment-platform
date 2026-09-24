@@ -11,12 +11,16 @@
     <section class="entry-layout entry-layout--single">
       <form class="entry-card participant-entry-card" id="adminLoginForm">
         <h1>管理员登录</h1>
-        <p>请输入管理员密码后进入后台。</p>
+        <p>请使用 CloudBase 账号登录后进入后台。</p>
+        <div class="form-row">
+          <label for="adminUsername">账号</label>
+          <input id="adminUsername" name="adminUsername" type="text" autocomplete="username" required />
+        </div>
         <div class="form-row">
           <label for="adminPassword">密码</label>
           <input id="adminPassword" name="adminPassword" type="password" autocomplete="current-password" required />
         </div>
-        <div class="notice" id="adminLoginNotice">请输入密码。</div>
+        <div class="notice" id="adminLoginNotice">请输入账号和密码。</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;">
           <button class="btn btn--primary" type="submit">进入后台</button>
         </div>
@@ -32,9 +36,11 @@
       </div>
       <nav class="nav-links">
         <a href="index.html">实验入口</a>
+        <a href="upload.html">素材上传</a>
         <a href="docs/implementation-plan.md">实施计划</a>
         <button class="btn" id="exportBtn" type="button">导出 CSV</button>
         <button class="btn" id="clearBtn" type="button">清空记录</button>
+        <button class="btn" id="logoutBtn" type="button">退出登录</button>
       </nav>
     </header>
 
@@ -57,12 +63,24 @@
     </section>
 
     <section class="panel">
-      <h2>视频素材</h2>
-      <p class="muted">正式版本中，视频文件放 EdgeOne，CloudBase 只存视频 URL、分类和实验元数据。</p>
+      <h2>素材池管理</h2>
+      <p class="muted">素材文件存放在 CloudBase 云存储，索引与审核状态存放在 <code>video_assets</code> 表。core 池服务研究 1A/1B/2A/2B，tracking 池服务研究 3；同一条素材可同时属于两个池。</p>
+      <div class="tracking-admin-toolbar">
+        <label for="poolFilter">查看池：</label>
+        <select id="poolFilter">
+          <option value="core">core（研究 1/2）</option>
+          <option value="tracking">tracking（研究 3）</option>
+          <option value="reviewing">待审核</option>
+        </select>
+        <button class="btn" id="refreshAssetsBtn" type="button">刷新素材</button>
+        <a class="btn btn--primary" href="upload.html">上传新素材</a>
+        <span class="muted" id="assetPoolStatus"></span>
+      </div>
+      <div class="panel stat-grid" id="categoryBalance"></div>
       <div style="overflow:auto;">
         <table class="admin-table">
-          <thead><tr><th>素材 ID</th><th>主分类</th><th>标题/文案</th><th>视频地址</th></tr></thead>
-          <tbody id="videoRows"></tbody>
+          <thead><tr><th>素材</th><th>类别</th><th>时长</th><th>所属池</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="assetRows"></tbody>
         </table>
       </div>
     </section>
@@ -105,32 +123,16 @@
   <script src="src/config/videos.js"></script>
   <script src="src/config/conditions.js"></script>
   <script src="src/lib/store.js"></script>
+  <script src="src/lib/assets.js"></script>
+  <script src="src/lib/admin-auth.js"></script>
   <script src="src/tracking/tracking.js"></script>
   <script>
-    const ADMIN_AUTH_FUNCTION = 'adminLogin';
-    const ADMIN_AUTH_SESSION_KEY = 'short_video_admin_authenticated';
     const adminLoginShell = document.getElementById('adminLoginShell');
     const adminShell = document.getElementById('adminShell');
     const adminLoginForm = document.getElementById('adminLoginForm');
+    const adminUsernameInput = document.getElementById('adminUsername');
     const adminPasswordInput = document.getElementById('adminPassword');
     const adminLoginNotice = document.getElementById('adminLoginNotice');
-
-    async function verifyAdminPassword(password) {
-      await window.ExperimentStore.whenReady;
-      const app = window.ExperimentStore.getCloudBaseApp?.();
-      if (!app || typeof app.callFunction !== 'function') {
-        throw new Error('CloudBase 云函数暂不可用，请确认环境配置与 SDK 加载状态。');
-      }
-      const result = await app.callFunction({
-        name: ADMIN_AUTH_FUNCTION,
-        data: { password },
-      });
-      const payload = result && (result.result || result.data || result);
-      if (!payload || payload.ok !== true) {
-        throw new Error(payload?.message || '密码错误，请重新输入。');
-      }
-      return payload;
-    }
 
     async function showAdminShell() {
       adminLoginShell.hidden = true;
@@ -138,18 +140,18 @@
       await initAdmin();
     }
 
-    if (window.sessionStorage.getItem(ADMIN_AUTH_SESSION_KEY) === '1') {
-      showAdminShell();
-    }
+    // Resume an existing CloudBase session rather than trusting a client-side flag.
+    window.AdminAuth.isAuthenticated().then((ok) => {
+      if (ok) showAdminShell();
+    });
 
     adminLoginForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       const submitButton = adminLoginForm.querySelector('button[type="submit"]');
       submitButton.disabled = true;
-      adminLoginNotice.textContent = '正在校验管理员密码……';
+      adminLoginNotice.textContent = '正在校验账号……';
       try {
-        await verifyAdminPassword(adminPasswordInput.value);
-        window.sessionStorage.setItem(ADMIN_AUTH_SESSION_KEY, '1');
+        await window.AdminAuth.signIn(adminUsernameInput.value.trim(), adminPasswordInput.value);
         adminPasswordInput.value = '';
         await showAdminShell();
       } catch (error) {
@@ -178,10 +180,15 @@
 
       stats.innerHTML = `
         <div class="stat"><b>${window.EXPERIMENT_CONDITIONS.length}</b><span>实验条件</span></div>
-        <div class="stat"><b>${window.VIDEO_ASSETS.length}</b><span>素材记录</span></div>
+        <div class="stat"><b id="statAssetCount">…</b><span>在用素材</span></div>
         <div class="stat"><b>${sessions.length}</b><span>session</span></div>
         <div class="stat"><b>${completions.length}</b><span>完成记录</span></div>
       `;
+
+      document.getElementById('logoutBtn').addEventListener('click', async () => {
+        await window.AdminAuth.signOut();
+        window.location.reload();
+      });
 
       document.getElementById('conditionRows').innerHTML = window.EXPERIMENT_CONDITIONS.map((condition) => {
         const url = `entry.html?study=${condition.study}&condition=${condition.condition}`;
@@ -213,14 +220,127 @@
       }).join('');
 
       const categoryLabel = (id) => window.CONTENT_CATEGORIES.find((item) => item.id === id)?.label || id;
-      document.getElementById('videoRows').innerHTML = window.VIDEO_ASSETS.map((video) => `
-        <tr>
-          <td>${video.id}<br><span class="muted">${video.sample_id}</span></td>
-          <td>${categoryLabel(video.primary_category)}</td>
-          <td>${video.caption}<br><span class="muted">@${video.uploader_name}</span></td>
-          <td><a href="${video.video}" target="_blank" rel="noreferrer">${video.video}</a></td>
-        </tr>
-      `).join('');
+
+      // 素材池：直接查 video_assets，不走 ExperimentStore.readAll()（那个会全量拉取被试数据表）。
+      const assetDb = (() => {
+        const app = window.ExperimentStore.getCloudBaseApp?.();
+        if (!app) return null;
+        return typeof app.rdb === 'function' ? app.rdb() : app.rdb;
+      })();
+
+      const poolFilter = document.getElementById('poolFilter');
+      const assetRows = document.getElementById('assetRows');
+      const assetPoolStatus = document.getElementById('assetPoolStatus');
+      const categoryBalance = document.getElementById('categoryBalance');
+
+      async function fetchAssets(view) {
+        if (!assetDb) return [];
+        let query = assetDb.from('video_assets').select('*');
+        if (view === 'reviewing') {
+          query = query.eq('status', 'reviewing');
+        } else {
+          query = query.eq(view === 'core' ? 'in_core_pool' : 'in_tracking_pool', true);
+        }
+        const result = await query;
+        if (result?.error) throw result.error;
+        return Array.isArray(result?.data) ? result.data : [];
+      }
+
+      async function updateAsset(id, patch) {
+        if (!assetDb) throw new Error('CloudBase 不可用');
+        const { error } = await assetDb.from('video_assets')
+          .update({ ...patch, updated_at: new Date().toISOString() })
+          .eq('id', id);
+        if (error) throw error;
+      }
+
+      // 70/30 偏好配比依赖类别均衡，所以各类在用条数要能一眼看出来。
+      function renderCategoryBalance(rows, view) {
+        if (view === 'reviewing') {
+          categoryBalance.innerHTML = `<div class="stat"><b>${rows.length}</b><span>待审核素材</span></div>`;
+          return;
+        }
+        const live = rows.filter((row) => row.status === 'active' && row.enabled);
+        categoryBalance.innerHTML = window.CONTENT_CATEGORIES.map((category) => {
+          const count = live.filter((row) => row.primary_category === category.id).length;
+          const off = count === 0 ? ' style="color:#c0392b"' : '';
+          return `<div class="stat"${off}><b>${count}</b><span>${category.shortLabel}</span></div>`;
+        }).join('') + `<div class="stat"><b>${live.length}</b><span>在用合计</span></div>`;
+      }
+
+      async function renderAssets() {
+        const view = poolFilter.value;
+        assetPoolStatus.textContent = '正在加载素材……';
+        let rows = [];
+        try {
+          rows = await fetchAssets(view);
+        } catch (error) {
+          assetPoolStatus.textContent = `素材加载失败：${error.message || error}`;
+          assetRows.innerHTML = '<tr><td colspan="6" class="muted">无法读取 video_assets，请确认迁移已执行且已登录。</td></tr>';
+          return;
+        }
+
+        renderCategoryBalance(rows, view);
+        const live = rows.filter((row) => row.status === 'active' && row.enabled).length;
+        assetPoolStatus.textContent = `共 ${rows.length} 条，其中在用 ${live} 条。`;
+        const statAssetCount = document.getElementById('statAssetCount');
+        if (statAssetCount && view !== 'reviewing') statAssetCount.textContent = String(live);
+
+        assetRows.innerHTML = rows.map((row) => {
+          const pools = [
+            row.in_core_pool ? 'core' : '',
+            row.in_tracking_pool ? 'tracking' : '',
+          ].filter(Boolean).join(' · ') || '未入池';
+          const isLive = row.status === 'active' && row.enabled;
+          const duration = row.duration_sec ? `${Math.round(Number(row.duration_sec))}s` : '—';
+          return `<tr>
+            <td>${tracking.escapeHtml(row.sample_id || row.id)}<br><span class="muted">${tracking.escapeHtml((row.caption || '').slice(0, 40))}</span></td>
+            <td>${tracking.escapeHtml(categoryLabel(row.primary_category))}</td>
+            <td>${duration}</td>
+            <td>${tracking.escapeHtml(pools)}</td>
+            <td>${tracking.escapeHtml(row.status)}${isLive ? '' : '<br><span class="muted">不参与推荐</span>'}</td>
+            <td>
+              <button class="btn asset-toggle" data-id="${tracking.escapeHtml(row.id)}" data-live="${isLive ? '1' : '0'}">${isLive ? '停用' : '启用'}</button>
+              <button class="btn asset-pool" data-id="${tracking.escapeHtml(row.id)}" data-pool="core" data-on="${row.in_core_pool ? '1' : '0'}">${row.in_core_pool ? '移出 core' : '加入 core'}</button>
+              <button class="btn asset-pool" data-id="${tracking.escapeHtml(row.id)}" data-pool="tracking" data-on="${row.in_tracking_pool ? '1' : '0'}">${row.in_tracking_pool ? '移出 tracking' : '加入 tracking'}</button>
+            </td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="6" class="muted">该视图下暂无素材。</td></tr>';
+
+        // 启停即发布：审核通过的素材在这里进入实验，被淘汰的素材在这里退出。
+        // 只改状态，云存储文件保留，历史 assigned_feeds 仍可复核。
+        assetRows.querySelectorAll('.asset-toggle').forEach((button) => button.addEventListener('click', async () => {
+          button.disabled = true;
+          const goingLive = button.dataset.live !== '1';
+          try {
+            await updateAsset(button.dataset.id, goingLive
+              ? { status: 'active', enabled: true, published_at: new Date().toISOString(), disabled_reason: null }
+              : { status: 'disabled', enabled: false, disabled_reason: '管理员手动停用' });
+            window.VideoAssets.clearCache();
+            await renderAssets();
+          } catch (error) {
+            button.disabled = false;
+            assetPoolStatus.textContent = `操作失败：${error.message || error}`;
+          }
+        }));
+
+        assetRows.querySelectorAll('.asset-pool').forEach((button) => button.addEventListener('click', async () => {
+          button.disabled = true;
+          const column = button.dataset.pool === 'core' ? 'in_core_pool' : 'in_tracking_pool';
+          try {
+            await updateAsset(button.dataset.id, { [column]: button.dataset.on !== '1' });
+            window.VideoAssets.clearCache();
+            await renderAssets();
+          } catch (error) {
+            button.disabled = false;
+            assetPoolStatus.textContent = `操作失败：${error.message || error}`;
+          }
+        }));
+      }
+
+      poolFilter.addEventListener('change', renderAssets);
+      document.getElementById('refreshAssetsBtn').addEventListener('click', renderAssets);
+      renderAssets();
 
       function byParticipant(list, participantId) {
         return list.filter((item) => String(item.participantId || item.participant_id) === String(participantId));

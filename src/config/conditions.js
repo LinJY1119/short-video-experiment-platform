@@ -272,7 +272,9 @@
     }),
 
     condition('3', 'g1', '研究3-G1：追踪实验组', {
-      browsing: { minDurationSec: 600, maxDurationSec: 600, trackingDurationSec: 600, feedLength: 300 },
+      // feedLength 取 100：10 分钟实际只刷 30 条左右，留 3 倍缓冲即可。
+      // 分配过多会让"已看过"集合虚高，也会让 assigned_feeds.video_sequence 无谓膨胀。
+      browsing: { minDurationSec: 600, maxDurationSec: 600, trackingDurationSec: 600, feedLength: 100 },
       visualTreatment: { ...saturationTreatment(65, 0), brightnessPercent: 100 },
       exitFeedback: { enabled: true, showWatchTime: true, showViewedCount: true },
       exitMode: 'hold_to_exit',

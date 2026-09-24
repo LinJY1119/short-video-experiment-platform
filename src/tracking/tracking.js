@@ -133,14 +133,33 @@
     });
   }
 
-  function buildFeed(condition, selectedCategories, sessionId, participantName) {
-    return window.Recommendation.buildRecommendedFeed({
-      assets: window.VIDEO_ASSETS,
+  function seenSampleIdsOf(participant) {
+    const raw = participant?.seenSampleIds ?? participant?.seen_sample_ids;
+    if (Array.isArray(raw)) return raw.map((id) => text(id)).filter(Boolean);
+    if (typeof raw === 'string' && raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.map((id) => text(id)).filter(Boolean) : [];
+      } catch (error) {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  // Study 3 runs 40 sessions per participant, so the pool is loaded fresh each time and
+  // previously-seen videos are pushed to the back of the queue.
+  async function buildFeed(condition, selectedCategories, sessionId, participantName, participant) {
+    const pool = await window.VideoAssets.load({ poolTag: 'tracking' });
+    const feed = window.Recommendation.buildRecommendedFeed({
+      assets: pool.assets,
       selectedCategories: selectedCategories?.length ? selectedCategories : ['life_record'],
       feedLength: condition?.browsing?.feedLength || 80,
       preferredRatio: condition?.recommendation?.preferredRatio ?? 0.7,
       seed: `${sessionId}_${participantName}_${condition?.study || ''}_${condition?.condition || ''}`,
+      seenSampleIds: seenSampleIdsOf(participant),
     });
+    return { feed, pool };
   }
 
   async function renderEntry({ form, participantInput, categoryGrid, notice, submitBtn, params, study, condition, source, returnUrl }) {
@@ -222,7 +241,13 @@
       const sessionId = text(existing?.sessionId || existing?.session_id) || window.ExperimentStore.makeId('sess');
       const runId = text(existing?.id) || `run_${sessionId}`;
       const selected = participant.selectedCategories || participant.selected_categories || [];
-      const feed = buildFeed(condition, selected, sessionId, participant.participantName || participant.participant_name);
+      const { feed, pool } = await buildFeed(
+        condition,
+        selected,
+        sessionId,
+        participant.participantName || participant.participant_name,
+        participant,
+      );
       const lateAfterSlot = Date.now() > targetEpoch(targetDate, slot.targetTime);
       const run = {
         id: runId,
@@ -256,6 +281,9 @@
         condition: condition.condition,
         selectedCategories: selected,
         recommendationRule: condition.recommendation,
+        poolTag: pool.poolTag,
+        poolVersion: pool.poolVersion,
+        poolSize: pool.poolSize,
         videoSequence: feed.map((item) => ({
           videoId: item.id,
           sampleId: item.sample_id,

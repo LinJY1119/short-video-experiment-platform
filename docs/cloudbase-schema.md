@@ -16,6 +16,37 @@
 
 前端仍然用同一组集合名调用 `window.ExperimentStore.upsert()` / `append()` / `readAll()`，只是底层改为 `app.rdb()` 访问 PG。
 
+## 素材表
+
+素材改为动态加载后新增两张表，由 `20260924100000_create_video_asset_tables.sql` 创建：
+
+- `video_assets` — 每条素材一行，记录云存储路径、类别、展示元数据与审核状态
+- `video_upload_batches` — 一次批量上传一行，便于按批审核
+
+这两张表**不走** `window.ExperimentStore`。`readAll()` 会把所有被试数据表全量拉一遍，几百条素材混进去会拖慢入口页，因此素材查询由 `src/lib/assets.js` 单独用 `app.rdb()` 完成。
+
+### 池归属
+
+`in_core_pool` 与 `in_tracking_pool` 两个布尔列决定素材服务哪个研究。用两列而不是单个 `pool_tag`，是因为同一条素材可以同时属于两个池——回填的原有 100 条就是如此。
+
+`assigned_feeds.pool_tag` / `pool_version` / `pool_size` 记录被试实际抽取自哪个池。`pool_version` 是该池成员集合的指纹（见 `src/lib/assets.js`），只有在素材集合完全相同时两个 session 才会得到同一个值。改用指纹而非自增计数，一是启停素材时无需回写整张表，二是它直接回答了被试间分析真正关心的问题：这两名被试看的是不是同一批素材。
+
+### 权限与其他表不同
+
+其余业务表对 `anon` 开放全部读写，因为被试需要匿名写入实验数据。素材表不能沿用这套：`src/config/cloudbase.js` 中的 publishable key 对任何打开网页的人可见，给 `anon` 写权限等同于对公网开放写入。
+
+因此：
+
+- `anon`：仅 `SELECT`，且 RLS 限定 `status = 'active' AND enabled = true`，待审核素材查询不到
+- `authenticated`：全部操作，上传与审核都要求真实登录
+
+对应地，`admin.html` 与 `upload.html` 的登录已改为真实的 CloudBase 会话校验（`src/lib/admin-auth.js`），不再使用仅切换界面显示的 `sessionStorage` 标记。
+
+### 追踪已看素材
+
+`tracking_participants.seen_sample_ids` 为有序 `jsonb` 数组（旧→新），记录研究 3 被试已经看过的 `sample_id`。每次任务结束时由 `src/runner/runner.js` 追加，生成序列时用于优先未看过的素材。
+
+
 ## 字段设计原则
 
 - 业务主键统一用 `text`。

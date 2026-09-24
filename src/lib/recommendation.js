@@ -42,7 +42,7 @@
     }, new Map());
   }
 
-  function createNonRepeatingPicker(assets, selectedCategories, rng) {
+  function createNonRepeatingPicker(assets, selectedCategories, rng, seenSampleIds) {
     const allAssets = assets.slice();
     const allSampleIds = new Set(allAssets.map((item) => item.sample_id));
     const allCategories = Array.from(new Set(allAssets.map((item) => item.primary_category || 'uncategorized')));
@@ -51,12 +51,32 @@
     const otherCategories = allCategories.filter((category) => !selected.has(category));
     const categoryMap = groupByCategory(allAssets);
     const categoryQueues = new Map();
-    const usedInCurrentCycle = new Set();
+    // Study 3 spans 40 sessions, so previously-seen videos are pre-marked as used and
+    // the normal "skip used" path then prefers unseen material automatically.
+    // seenOrder is oldest-first, which drives the least-recently-seen release below.
+    const seenOrder = (seenSampleIds || []).filter((id) => allSampleIds.has(id));
+    const usedInCurrentCycle = new Set(seenOrder);
+
+    function releaseLeastRecentlySeen() {
+      // Once unseen material runs out, free the oldest half rather than everything, so a
+      // video watched moments ago does not immediately reappear.
+      const stillHeld = seenOrder.filter((id) => usedInCurrentCycle.has(id));
+      if (!stillHeld.length) return false;
+      const releaseCount = Math.max(1, Math.ceil(stillHeld.length / 2));
+      stillHeld.slice(0, releaseCount).forEach((id) => usedInCurrentCycle.delete(id));
+      categoryQueues.clear();
+      return releaseCount > 0;
+    }
+
+    function resetCycle() {
+      if (seenOrder.length && releaseLeastRecentlySeen()) return;
+      usedInCurrentCycle.clear();
+      categoryQueues.clear();
+    }
 
     function resetIfCycleComplete() {
       if (usedInCurrentCycle.size >= allSampleIds.size) {
-        usedInCurrentCycle.clear();
-        categoryQueues.clear();
+        resetCycle();
       }
     }
 
@@ -107,8 +127,7 @@
         || takeFromCategories(fallbackCategories, avoidSampleId);
 
       if (!item && usedInCurrentCycle.size > 0) {
-        usedInCurrentCycle.clear();
-        categoryQueues.clear();
+        resetCycle();
         item = takeFromCategories(primaryCategories, avoidSampleId)
           || takeFromCategories(fallbackCategories, avoidSampleId)
           || takeFromCategories(allCategories, null);
@@ -144,7 +163,8 @@
     const preferred = assets.filter((item) => selected.has(item.primary_category));
     const preferredCount = Math.round(length * ratio);
     const slots = buildSlotTypes(length, preferred.length ? preferredCount : 0, rng);
-    const picker = createNonRepeatingPicker(assets, Array.from(selected), rng);
+    // seenSampleIds is optional and oldest-first; only study 3 passes it.
+    const picker = createNonRepeatingPicker(assets, Array.from(selected), rng, options.seenSampleIds);
     const sequence = [];
 
     slots.forEach((slot) => {

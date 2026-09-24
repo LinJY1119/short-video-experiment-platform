@@ -43,6 +43,7 @@
   <script src="src/config/videos.js"></script>
   <script src="src/config/conditions.js"></script>
   <script src="src/lib/store.js"></script>
+  <script src="src/lib/assets.js"></script>
   <script src="src/lib/recommendation.js"></script>
   <script src="src/tracking/tracking.js"></script>
   <script>
@@ -154,8 +155,10 @@
         height: window.screen.height,
         devicePixelRatio: window.devicePixelRatio || 1,
       };
+      // 素材来自 video_assets 表；数据库不可用时回退到 src/config/videos.js 的静态数组。
+      const pool = await window.VideoAssets.load({ study });
       const feed = window.Recommendation.buildRecommendedFeed({
-        assets: window.VIDEO_ASSETS,
+        assets: pool.assets,
         selectedCategories: categories,
         feedLength: condition.browsing.feedLength,
         preferredRatio: condition.recommendation.preferredRatio,
@@ -170,6 +173,9 @@
         condition: conditionId,
         selectedCategories: categories,
         recommendationRule: condition.recommendation,
+        poolTag: pool.poolTag,
+        poolVersion: pool.poolVersion,
+        poolSize: pool.poolSize,
         videoSequence: feed.map((item) => ({
           videoId: item.id,
           sampleId: item.sample_id,

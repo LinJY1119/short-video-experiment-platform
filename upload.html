@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>素材上传</title>
+  <link rel="stylesheet" href="src/styles/site.css" />
+</head>
+<body>
+  <main class="site-shell" id="uploadShell" hidden>
+    <header class="site-topbar">
+      <div class="brand-lockup">
+        <strong>素材上传</strong>
+        <span>视频文件进 CloudBase 云存储，索引写入 video_assets 表。</span>
+      </div>
+      <nav class="nav-links">
+        <a href="admin.html">返回后台</a>
+        <span class="muted" id="uploadUserLabel"></span>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <div class="hero-card">
+        <h1>按类别整理好文件夹，拖进来即可。</h1>
+        <p>请在本地先建好以内容类别命名的文件夹，把视频分别放进去，然后整体选择父文件夹。类别由文件夹名自动识别，封面、时长、分辨率由浏览器自动提取，不需要手工填写。上传完成的素材处于待审核状态，需在后台启用后才会进入实验。</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>1. 选择目标池</h2>
+      <div class="tracking-admin-toolbar">
+        <label for="poolSelect">素材池：</label>
+        <select id="poolSelect">
+          <option value="tracking">tracking — 研究 3 追踪池（累积增长）</option>
+          <option value="core">core — 研究 1/2 素材池（约五类各 20）</option>
+        </select>
+      </div>
+      <p class="muted">合法的类别文件夹名：<code id="categoryHint"></code></p>
+    </section>
+
+    <section class="panel">
+      <h2>2. 选择文件夹</h2>
+      <div class="tracking-admin-toolbar">
+        <input type="file" id="folderInput" webkitdirectory directory multiple accept="video/*" />
+        <button class="btn" id="analyzeBtn" type="button">解析文件</button>
+        <span class="muted" id="analyzeStatus">尚未选择文件。</span>
+      </div>
+      <div style="overflow:auto;">
+        <table class="admin-table">
+          <thead><tr><th>文件</th><th>类别</th><th>大小</th><th>时长</th><th>状态</th></tr></thead>
+          <tbody id="fileRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>3. 上传</h2>
+      <div class="tracking-admin-toolbar">
+        <button class="btn btn--primary" id="uploadBtn" type="button" disabled>开始上传</button>
+        <span class="muted" id="uploadStatus"></span>
+      </div>
+      <pre class="codebox" id="uploadLog">等待上传。</pre>
+    </section>
+  </main>
+
+  <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
+  <script src="src/config/cloudbase.js"></script>
+  <script src="src/config/categories.js"></script>
+  <script src="src/config/videos.js"></script>
+  <script src="src/lib/store.js"></script>
+  <script src="src/lib/assets.js"></script>
+  <script src="src/lib/admin-auth.js"></script>
+  <script src="src/upload/upload.js"></script>
+</body>
+</html>

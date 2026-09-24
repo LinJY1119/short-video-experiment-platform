@@ -324,6 +324,9 @@
               recommendation_rule: normalizeObject(valueOf(input, 'recommendationRule', 'recommendation_rule')),
               video_sequence: normalizeArray(valueOf(input, 'videoSequence', 'video_sequence')),
               preference_match_ratio: normalizeNumber(valueOf(input, 'preferenceMatchRatio', 'preference_match_ratio')),
+              pool_tag: valueOf(input, 'poolTag', 'pool_tag') ?? null,
+              pool_version: normalizeNumber(valueOf(input, 'poolVersion', 'pool_version')),
+              pool_size: normalizeNumber(valueOf(input, 'poolSize', 'pool_size')),
               created_at: normalizeTimestamp(valueOf(input, 'createdAt', 'created_at') ?? valueOf(existing || {}, 'createdAt', 'created_at') ?? now),
               updated_at: normalizeTimestamp(valueOf(input, 'updatedAt', 'updated_at') ?? now),
             });
@@ -349,6 +352,12 @@
               video_sequence: videoSequence,
               preferenceMatchRatio: normalizeNumber(row.preference_match_ratio),
               preference_match_ratio: normalizeNumber(row.preference_match_ratio),
+              poolTag: valueOf(row, 'pool_tag') ?? '',
+              pool_tag: valueOf(row, 'pool_tag') ?? '',
+              poolVersion: normalizeNumber(row.pool_version),
+              pool_version: normalizeNumber(row.pool_version),
+              poolSize: normalizeNumber(row.pool_size),
+              pool_size: normalizeNumber(row.pool_size),
               createdAt: normalizeTimestamp(row.created_at),
               created_at: normalizeTimestamp(row.created_at),
               updatedAt: normalizeTimestamp(row.updated_at),
@@ -617,6 +626,7 @@
               condition: valueOf(input, 'condition') ?? valueOf(existing || {}, 'condition') ?? null,
               start_date: valueOf(input, 'startDate', 'start_date') ?? valueOf(existing || {}, 'startDate', 'start_date') ?? null,
               selected_categories: normalizeArray(valueOf(input, 'selectedCategories', 'selected_categories') ?? valueOf(existing || {}, 'selectedCategories', 'selected_categories')),
+              seen_sample_ids: normalizeArray(valueOf(input, 'seenSampleIds', 'seen_sample_ids') ?? valueOf(existing || {}, 'seenSampleIds', 'seen_sample_ids')),
               status: valueOf(input, 'status') ?? valueOf(existing || {}, 'status') ?? 'active',
               final_completion_code: valueOf(input, 'finalCompletionCode', 'final_completion_code') ?? valueOf(existing || {}, 'finalCompletionCode', 'final_completion_code') ?? null,
               final_completed_at: normalizeTimestamp(valueOf(input, 'finalCompletedAt', 'final_completed_at') ?? valueOf(existing || {}, 'finalCompletedAt', 'final_completed_at')),
@@ -626,6 +636,7 @@
           },
           fromRow(row) {
             const selectedCategories = normalizeArray(row.selected_categories);
+            const seenSampleIds = normalizeArray(row.seen_sample_ids);
             return {
               id: String(valueOf(row, 'id') || ''),
               participantId: String(valueOf(row, 'id') || ''),
@@ -641,6 +652,8 @@
               start_date: valueOf(row, 'start_date') ?? '',
               selectedCategories,
               selected_categories: selectedCategories,
+              seenSampleIds,
+              seen_sample_ids: seenSampleIds,
               status: valueOf(row, 'status') ?? '',
               finalCompletionCode: valueOf(row, 'final_completion_code') ?? '',
               final_completion_code: valueOf(row, 'final_completion_code') ?? '',

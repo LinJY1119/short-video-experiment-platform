@@ -1633,8 +1633,48 @@ function startFeed() {
           })
         : Promise.resolve(),
     ]);
+    if (isTrackingRun) await recordSeenVideos();
     if (shouldShowCompletionCode) showOutro(summary, completionCode);
     else showExperimentEnded();
+  }
+
+  // Study 3 prefers videos the participant has not seen yet, so each completed run
+  // appends what was actually watched to the participant's ordered seen list. Written
+  // after the run records so a failure here cannot cost us the session data.
+  async function recordSeenVideos() {
+    try {
+      const watched = Array.from(state.visited)
+        .sort((a, b) => a - b)
+        .map((index) => feed[index]?.sample_id)
+        .filter(Boolean);
+      if (!watched.length) return;
+
+      const records = await window.ExperimentStore.readAll();
+      const participant = (records.tracking_participants || [])
+        .find((item) => String(item.id || item.participantId) === String(sessionMeta.participantId));
+      if (!participant) return;
+
+      // Oldest-first, de-duplicated: re-seeing a video keeps its original position so the
+      // least-recently-seen rotation stays meaningful.
+      const previous = Array.isArray(participant.seenSampleIds) ? participant.seenSampleIds : [];
+      const merged = previous.slice();
+      const known = new Set(merged);
+      watched.forEach((sampleId) => {
+        if (known.has(sampleId)) return;
+        known.add(sampleId);
+        merged.push(sampleId);
+      });
+      if (merged.length === previous.length) return;
+
+      await window.ExperimentStore.upsert('tracking_participants', {
+        ...participant,
+        id: participant.id,
+        seenSampleIds: merged,
+      });
+    } catch (error) {
+      // Worst case the participant sees some repeats; never block task completion.
+      if (DEBUG) console.warn('recordSeenVideos failed', error);
+    }
   }
 
   function renderDebug(action) {
